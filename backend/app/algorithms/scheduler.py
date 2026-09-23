@@ -259,7 +259,10 @@ class TimetableScheduler:
         unavailability and section/faculty conflicts that may arise from
         multiple sessions of the same section landing in the same slot.
         """
-        available_slots = [ts for ts in self.input.time_slots if not ts.is_break]
+        available_slots = sorted(
+            [ts for ts in self.input.time_slots if not ts.is_break],
+            key=lambda ts: (ts.day_of_week, ts.start_time)
+        )
         if not available_slots:
             available_slots = self.input.time_slots
 

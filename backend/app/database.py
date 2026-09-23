@@ -41,12 +41,34 @@ async def get_async_db():
 
 
 def init_db():
-    """Create all tables."""
+    """Create all tables and safely apply column additions if SQLite."""
     from app.models.base import Base
+    from sqlalchemy import text
     Base.metadata.create_all(bind=engine)
+
+    # Automatically add new columns if upgrading existing SQLite database
+    if settings.DATABASE_URL.startswith("sqlite"):
+        try:
+            with engine.connect() as conn:
+                def add_col_if_missing(table, col_name, col_def):
+                    try:
+                        res = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+                        cols = [r[1] for r in res]
+                        if cols and col_name not in cols:
+                            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}"))
+                            conn.commit()
+                    except Exception:
+                        pass
+
+                add_col_if_missing("faculty", "department_id", "INTEGER")
+                add_col_if_missing("courses", "department_id", "INTEGER")
+                add_col_if_missing("courses", "semester", "INTEGER")
+                add_col_if_missing("rooms", "department_id", "INTEGER")
+        except Exception:
+            pass
 
 
 def drop_db():
     """Drop all tables."""
     from app.models.base import Base
-    Base.metadata.drop_all(bind=engine)
+    Base.metadata.drop_all(bind=engine)

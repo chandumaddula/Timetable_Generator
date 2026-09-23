@@ -9,10 +9,26 @@ export interface User {
   updated_at?: string;
 }
 
+export interface Department extends Record<string, unknown> {
+  id: number;
+  name: string;
+  code?: string;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SemesterItem {
+  semester: number;
+  label: string;
+}
+
 export interface Faculty extends Record<string, unknown> {
   id: number;
   name: string;
   department?: string;
+  department_id?: number;
+  department_rel?: Department;
   email?: string;
   is_full_time: boolean;
   max_hours_per_week: number;
@@ -25,6 +41,9 @@ export interface Course extends Record<string, unknown> {
   code: string;
   name: string;
   description?: string;
+  department_id?: number;
+  department?: Department;
+  semester?: number;
   credits: number;
   faculty_id?: number;
   faculty?: Faculty;

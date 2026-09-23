@@ -185,19 +185,6 @@ export function InstitutionalTimetableSheet({
 }: InstitutionalTimetableSheetProps) {
   const metadata = timetable?.metadata ?? {};
 
-  const days: number[] = useMemo(() => {
-    if (timetable?.days?.length) return timetable.days.map((d) => typeof d === "number" ? d : -1);
-    if (timetable?.timeSlots?.length) {
-      const ds = Array.from(new Set((timetable.timeSlots as TimeSlot[]).map((s) => s.day_of_week))).sort();
-      return ds.length ? ds : [0, 1, 2, 3, 4];
-    }
-    if (timeSlotsProp?.length) {
-      const ds = Array.from(new Set(timeSlotsProp.map((s) => s.day_of_week))).sort();
-      return ds.length ? ds : [0, 1, 2, 3, 4];
-    }
-    return [0, 1, 2, 3, 4];
-  }, [timetable?.days, timetable?.timeSlots, timeSlotsProp]);
-
   const courses: Course[] = timetable?.courses ?? (coursesProp ?? []);
   const faculty: Faculty[] = timetable?.faculty ?? (facultyProp ?? []);
   const rooms: Room[] = timetable?.rooms ?? (roomsProp ?? []);
@@ -223,13 +210,32 @@ export function InstitutionalTimetableSheet({
           : undefined,
         room: c.roomName ? ({ room_number: c.roomName } as Room) : undefined,
         time_slot: c.day
-          ? ({ day_of_week: days[0], start_time: "", end_time: "" } as TimeSlot)
+          ? ({ day_of_week: 0, start_time: "", end_time: "" } as TimeSlot)
           : undefined,
         faculty: c.facultyName
           ? ({ name: c.facultyName } as Faculty)
           : undefined,
       }))
     : entriesProp ?? [];
+
+  const days: number[] = useMemo(() => {
+    const daySet = new Set<number>();
+    if (timetable?.days?.length) {
+      timetable.days.forEach((d) => typeof d === "number" && daySet.add(d));
+    }
+    if (timeSlots?.length) {
+      timeSlots.forEach((s) => typeof s.day_of_week === "number" && daySet.add(s.day_of_week));
+    }
+    if (entries?.length) {
+      entries.forEach((e) => {
+        if (e.time_slot && typeof e.time_slot.day_of_week === "number") {
+          daySet.add(e.time_slot.day_of_week);
+        }
+      });
+    }
+    const arr = Array.from(daySet).sort((a, b) => a - b);
+    return arr;
+  }, [timetable?.days, timeSlots, entries]);
 
   const courseMap = useMemo(
     () => new Map<number, Course>(courses.map((c) => [c.id, c])),
@@ -249,44 +255,51 @@ export function InstitutionalTimetableSheet({
   );
 
   const uniqueTimeRanges = useMemo(() => {
-    const sortedSlots = [...timeSlots].sort((a, b) =>
-      String(a.start_time).localeCompare(String(b.start_time))
-    );
-    const seen = new Set<string>();
-    const result: Array<{
+    const allSlots: TimeSlot[] = [...timeSlots];
+    entries.forEach((e) => {
+      if (e.time_slot && e.time_slot.start_time && e.time_slot.end_time) {
+        allSlots.push(e.time_slot as TimeSlot);
+      }
+    });
+
+    const timeMap = new Map<string, {
       startTime: string;
       endTime: string;
       label?: string;
       isBreak: boolean;
       slotsByDay: Map<number, TimeSlot>;
-    }> = [];
+    }>();
 
-    sortedSlots.forEach((slot) => {
+    allSlots.forEach((slot) => {
+      if (!slot.start_time || !slot.end_time) return;
       const startTime = String(slot.start_time).slice(0, 5);
       const endTime = String(slot.end_time).slice(0, 5);
       const key = `${startTime}-${endTime}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      const slotsByDay = new Map<number, TimeSlot>();
-      timeSlots.forEach((ts) => {
-        if (
-          String(ts.start_time).slice(0, 5) === startTime &&
-          String(ts.end_time).slice(0, 5) === endTime
-        ) {
-          slotsByDay.set(ts.day_of_week, ts);
-        }
-      });
-      result.push({
-        startTime,
-        endTime,
-        label: slot.label,
-        isBreak: slot.is_break,
-        slotsByDay,
-      });
+
+      if (!timeMap.has(key)) {
+        timeMap.set(key, {
+          startTime,
+          endTime,
+          label: slot.label,
+          isBreak: !!slot.is_break,
+          slotsByDay: new Map<number, TimeSlot>(),
+        });
+      }
+
+      const item = timeMap.get(key)!;
+      if (slot.is_break) {
+        item.isBreak = true;
+        if (slot.label) item.label = slot.label;
+      }
+      if (typeof slot.day_of_week === "number") {
+        item.slotsByDay.set(slot.day_of_week, slot);
+      }
     });
+
+    const result = Array.from(timeMap.values());
     result.sort((a, b) => a.startTime.localeCompare(b.startTime));
     return result;
-  }, [timeSlots]);
+  }, [timeSlots, entries]);
 
   const legendCourses = useMemo(() => {
     if (entries.length > 0) {
@@ -347,14 +360,19 @@ export function InstitutionalTimetableSheet({
 
   const labBatchCount = useMemo(() => {
     if (sections && sections.length > 0) {
-      const totalBatches = sections.reduce((acc, s) => {
-        const batches = (s as any).batches;
-        if (Array.isArray(batches) && batches.length > 0) {
-          return acc + batches.length;
-        }
-        return acc + 1;
-      }, 0);
-      return totalBatches;
+      const labSections = sections.filter(
+        (s) => s.requires_lab || (s as any).is_lab || (s as any).batches?.length > 0
+      );
+      if (labSections.length > 0) {
+        const totalBatches = labSections.reduce((acc, s) => {
+          const batches = (s as any).batches;
+          if (Array.isArray(batches) && batches.length > 0) {
+            return acc + batches.length;
+          }
+          return acc + 1;
+        }, 0);
+        return totalBatches > 0 ? totalBatches : 0;
+      }
     }
     if (entries.length > 0) {
       const slotCounts = new Map<number, number>();
@@ -364,10 +382,10 @@ export function InstitutionalTimetableSheet({
       const maxConcurrent = Math.max(0, ...Array.from(slotCounts.values()));
       if (maxConcurrent > 0) return maxConcurrent;
     }
-    return 1;
+    return 0;
   }, [sections, entries]);
 
-  const colSpan = days.length;
+  const colSpan = days.length > 0 ? days.length : 1;
   const sheetRef = React.useRef<HTMLDivElement>(null);
 
   const handleExportPNG = async () => {
@@ -460,10 +478,25 @@ export function InstitutionalTimetableSheet({
                   {dayShort(d).toUpperCase()}
                 </th>
               ))}
+              {days.length === 0 && (
+                <th className="border border-slate-800 px-3 py-2 text-center font-bold text-slate-400">
+                  DAYS
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
-            {uniqueTimeRanges.map((trKey, idx) => {
+            {uniqueTimeRanges.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={Math.max(3, days.length + 2)}
+                  className="border border-slate-800 py-8 text-center text-slate-400 italic text-xs bg-white"
+                >
+                  No time slots configured or matching the selected filters.
+                </td>
+              </tr>
+            ) : (
+              uniqueTimeRanges.map((trKey, idx) => {
               const { startTime, endTime, label, isBreak, slotsByDay } = trKey;
               const timeDisplay = `${startTime} - ${endTime}`;
 
@@ -490,17 +523,15 @@ export function InstitutionalTimetableSheet({
                   </td>
                   {days.map((d) => {
                     const slotForDay = slotsByDay.get(d);
-                    const cellEntries = slotForDay
-                      ? entries.filter((e) => {
-                          if (Number(e.time_slot_id) === Number(slotForDay.id)) return true;
-                          if (e.time_slot) {
-                            const matchDay = Number(e.time_slot.day_of_week) === Number(d);
-                            const matchTime = String(e.time_slot.start_time).slice(0, 5) === startTime;
-                            return matchDay && matchTime;
-                          }
-                          return false;
-                        })
-                      : [];
+                    const cellEntries = entries.filter((e) => {
+                      if (slotForDay && Number(e.time_slot_id) === Number(slotForDay.id)) return true;
+                      if (e.time_slot) {
+                        const matchDay = Number(e.time_slot.day_of_week) === Number(d);
+                        const matchTime = String(e.time_slot.start_time).slice(0, 5) === startTime;
+                        return matchDay && matchTime;
+                      }
+                      return false;
+                    });
 
                     if (cellEntries.length === 0) {
                       return (
@@ -553,7 +584,7 @@ export function InstitutionalTimetableSheet({
                   })}
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
 
@@ -587,6 +618,16 @@ export function InstitutionalTimetableSheet({
                         <td className="p-1 text-slate-800">{c.name}</td>
                       </tr>
                     ))}
+                    {legendCourses.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={3}
+                          className="p-3 text-center text-slate-400 italic text-[11px]"
+                        >
+                          No subjects selected
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -626,7 +667,7 @@ export function InstitutionalTimetableSheet({
                       <tr>
                         <td
                           colSpan={2}
-                          className="p-2 text-center text-slate-400 italic text-[11px]"
+                          className="p-3 text-center text-slate-400 italic text-[11px]"
                         >
                           No specific lab premises mapped
                         </td>
@@ -663,6 +704,16 @@ export function InstitutionalTimetableSheet({
                         <td className="p-1 text-slate-800">{f.name}</td>
                       </tr>
                     ))}
+                    {legendFaculty.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={2}
+                          className="p-3 text-center text-slate-400 italic text-[11px]"
+                        >
+                          No faculty selected
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -671,7 +722,7 @@ export function InstitutionalTimetableSheet({
 
           <div className="bg-slate-100 border-t border-slate-800 px-3 py-1.5 flex justify-between items-center text-xs font-bold text-slate-900">
             <div>TOTAL STUDENTS: {totalStudents !== null ? totalStudents : "—"}</div>
-            <div>LAB BATCH: {String(labBatchCount).padStart(2, "0")}</div>
+            <div>LAB BATCH: {labBatchCount > 0 ? String(labBatchCount).padStart(2, "0") : "—"}</div>
           </div>
         </div>
       </div>

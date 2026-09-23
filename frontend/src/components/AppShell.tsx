@@ -1,20 +1,25 @@
 "use client";
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/auth";
 import { Sidebar, MobileNav } from "./Sidebar";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const router = useRouter();
 
   useEffect(() => {
-    if (!isAuthenticated()) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (mounted && !isAuthenticated()) {
       router.replace("/login");
     }
-  }, [isAuthenticated, router]);
+  }, [mounted, isAuthenticated, router]);
 
-  if (!isAuthenticated()) {
+  if (!mounted || !isAuthenticated()) {
     return (
       <div className="flex h-screen items-center justify-center bg-ink-50">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-200 border-t-brand-600" />
@@ -32,3 +37,4 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+

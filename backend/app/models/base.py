@@ -45,16 +45,30 @@ class UserRole(Base, TimestampMixin):
     user = relationship("User", back_populates="roles")
     role = relationship("Role", back_populates="user_roles")
 
+class Department(Base, TimestampMixin):
+    __tablename__ = "departments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, index=True, nullable=False)
+    code = Column(String(20), unique=True, index=True, nullable=True)
+    description = Column(Text, nullable=True)
+
+    courses = relationship("Course", back_populates="department")
+    faculty = relationship("Faculty", back_populates="department_rel")
+    rooms = relationship("Room", back_populates="department_rel")
+
 class Faculty(Base, TimestampMixin):
     __tablename__ = "faculty"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    department = Column(String(100))
+    department = Column(String(100))  # String name preserved for backwards compatibility
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     email = Column(String(255))
     is_full_time = Column(Boolean, default=True)
     max_hours_per_week = Column(Integer, default=20)
 
+    department_rel = relationship("Department", back_populates="faculty")
     courses = relationship("Course", back_populates="faculty")
     availability = relationship("FacultyAvailability", back_populates="faculty")
     preferences = relationship("FacultyPreference", back_populates="faculty")
@@ -69,10 +83,13 @@ class Course(Base, TimestampMixin):
     description = Column(Text)
     credits = Column(Integer, default=3)
     faculty_id = Column(Integer, ForeignKey("faculty.id"))
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    semester = Column(Integer, nullable=True)  # e.g., 1, 2, 3, 4, 5, 6, 7, 8
     is_lab = Column(Boolean, default=False)
     default_periods_per_week = Column(Integer, default=3)
     min_periods = Column(Integer, default=1)
 
+    department = relationship("Department", back_populates="courses")
     faculty = relationship("Faculty", back_populates="courses")
     sections = relationship("Section", back_populates="course")
     timetable_entries = relationship("TimetableEntry", back_populates="course")
@@ -97,16 +114,19 @@ class Room(Base, TimestampMixin):
     id = Column(Integer, primary_key=True, index=True)
     room_number = Column(String(50), unique=True, index=True, nullable=False)
     building = Column(String(100))
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     capacity = Column(Integer, default=50)
     has_projector = Column(Boolean, default=True)
     has_computer = Column(Boolean, default=False)
     room_type = Column(String(50))  # lecture, lab, tutorial
 
+    department_rel = relationship("Department", back_populates="rooms")
     availability = relationship("RoomAvailability", back_populates="room")
     timetable_entries = relationship("TimetableEntry", back_populates="room")
 
 class TimeSlot(Base, TimestampMixin):
     __tablename__ = "time_slots"
+
 
     id = Column(Integer, primary_key=True, index=True)
     day_of_week = Column(Integer, nullable=False)  # 0=Monday .. 6=Sunday

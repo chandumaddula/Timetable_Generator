@@ -47,12 +47,27 @@ import { dayShort, dayName } from "@/lib/utils";
 import { Course, Faculty, Room, Section, TimeSlot } from "@/lib/types";
 
 // --- Types ---
+interface DepartmentItem {
+  id: number;
+  name: string;
+  code?: string;
+  description?: string;
+}
+
+interface SemesterData {
+  semester: number;
+  label: string;
+}
+
 interface CourseItem {
   id: number;
   code: string;
   name: string;
   is_lab: boolean;
-  faculty?: { name: string; department?: string };
+  department_id?: number;
+  semester?: number;
+  faculty_id?: number;
+  faculty?: { id: number; name: string; department?: string };
 }
 
 interface SectionItem {
@@ -64,6 +79,7 @@ interface FacultyItem {
   id: number;
   name: string;
   department?: string;
+  department_id?: number;
   is_full_time: boolean;
 }
 
@@ -96,7 +112,8 @@ interface GenResult {
     rooms_count?: number;
     time_slots_count?: number;
     department?: string;
-    semester?: string;
+    department_id?: number;
+    semester?: string | number;
   };
 }
 
@@ -110,6 +127,8 @@ function MultiSelect<T extends { id: number; name: string }>({
   selected,
   onChange,
   placeholder,
+  disabled = false,
+  emptyText = "No items available",
   renderItem,
 }: {
   label: string;
@@ -117,6 +136,8 @@ function MultiSelect<T extends { id: number; name: string }>({
   selected: number[];
   onChange: (ids: number[]) => void;
   placeholder: string;
+  disabled?: boolean;
+  emptyText?: string;
   renderItem?: (item: T) => React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -134,15 +155,18 @@ function MultiSelect<T extends { id: number; name: string }>({
       <label className="label">{label}</label>
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        className="input-field text-left flex items-center justify-between"
+        disabled={disabled}
+        onClick={() => !disabled && setOpen(!open)}
+        className={`input-field text-left flex items-center justify-between ${
+          disabled ? "bg-ink-100/60 cursor-not-allowed opacity-75" : ""
+        }`}
       >
-        <span className={selected.length ? "text-ink-900" : "text-ink-400"}>
+        <span className={selected.length ? "text-ink-900 font-medium" : "text-ink-400"}>
           {selected.length ? selectedNames.join(", ") : placeholder}
         </span>
         {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
       </button>
-      {open && (
+      {open && !disabled && (
         <div className="absolute z-30 mt-1 w-full bg-white border border-ink-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
           {items.map((item) => (
             <label
@@ -159,17 +183,17 @@ function MultiSelect<T extends { id: number; name: string }>({
             </label>
           ))}
           {items.length === 0 && (
-            <p className="px-4 py-3 text-sm text-ink-500">No items available</p>
+            <p className="px-4 py-3 text-sm text-ink-500">{emptyText}</p>
           )}
         </div>
       )}
-      {selected.length > 0 && (
+      {selected.length > 0 && !disabled && (
         <button
           type="button"
           onClick={() => onChange([])}
           className="mt-1 text-xs text-red-500 hover:text-red-700"
         >
-          Clear all
+          Clear all ({selected.length})
         </button>
       )}
     </div>
@@ -182,13 +206,13 @@ export default function GeneratePage() {
   const toast = useToast();
   const qc = useQueryClient();
 
-  // Form state
-  const [department, setDepartment] = useState("");
-  const [semester, setSemester] = useState("");
+  // Cascading form state
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | "">("");
+  const [selectedSemester, setSelectedSemester] = useState<number | "">("");
   const [selectedCourses, setSelectedCourses] = useState<number[]>([]);
+  const [selectedFaculty, setSelectedFaculty] = useState<number[]>([]);
   const [timeStart, setTimeStart] = useState("");
   const [timeEnd, setTimeEnd] = useState("");
-  const [selectedFaculty, setSelectedFaculty] = useState<number[]>([]);
   const [numSections, setNumSections] = useState<number>(0);
   const [numRooms, setNumRooms] = useState<number>(0);
   const [optimize, setOptimize] = useState(true);
@@ -200,23 +224,44 @@ export default function GeneratePage() {
   const [result, setResult] = useState<GenResult | null>(null);
   const [generatedId, setGeneratedId] = useState<number | null>(null);
 
-  // Fetch lookup data
-  const { data: departments } = useQuery({
+  // 1. Department Query: Authoritative database departments
+  const { data: departmentsData, isLoading: isLoadingDepts } = useQuery({
     queryKey: ["departments"],
     queryFn: () => getDepartments().then((r) => r.data),
   });
-  const { data: semesters } = useQuery({
-    queryKey: ["semesters"],
-    queryFn: () => getSemesters().then((r) => r.data),
+
+  // 2. Semester Query: Dependent on selected Department
+  const { data: semestersData, isLoading: isLoadingSemesters } = useQuery({
+    queryKey: ["semesters", selectedDepartmentId],
+    queryFn: () => getSemesters(selectedDepartmentId).then((r) => r.data),
+    enabled: Boolean(selectedDepartmentId),
   });
-  const { data: coursesData } = useQuery({
-    queryKey: ["courses"],
-    queryFn: () => getCourses({ limit: 200 }).then((r) => r.data),
+
+  // 3. Courses Query: Dependent on BOTH Department and Semester (backend filtered)
+  const { data: coursesData, isLoading: isLoadingCourses } = useQuery({
+    queryKey: ["courses", selectedDepartmentId, selectedSemester],
+    queryFn: () =>
+      getCourses({
+        department_id: Number(selectedDepartmentId),
+        semester: selectedSemester,
+        limit: 200,
+      }).then((r) => r.data),
+    enabled: Boolean(selectedDepartmentId && selectedSemester),
   });
-  const { data: facultyData } = useQuery({
-    queryKey: ["faculty"],
-    queryFn: () => getFaculty({ limit: 200 }).then((r) => r.data),
+
+  // 4. Faculty Query: Dependent on Department (and optionally filtered by selected courses)
+  const { data: facultyData, isLoading: isLoadingFaculty } = useQuery({
+    queryKey: ["faculty", selectedDepartmentId, selectedCourses],
+    queryFn: () =>
+      getFaculty({
+        department_id: selectedDepartmentId ? Number(selectedDepartmentId) : undefined,
+        course_ids: selectedCourses.length ? selectedCourses.join(",") : undefined,
+        limit: 200,
+      }).then((r) => r.data),
+    enabled: Boolean(selectedDepartmentId),
   });
+
+  // 5. Lookup Queries for Rooms, TimeSlots, and Sections
   const { data: roomsData } = useQuery({
     queryKey: ["rooms"],
     queryFn: () => getRooms({ limit: 200 }).then((r) => r.data),
@@ -230,40 +275,60 @@ export default function GeneratePage() {
     queryFn: () => getSections({ limit: 200 }).then((r) => r.data),
   });
 
+  const departments: DepartmentItem[] = Array.isArray(departmentsData) ? departmentsData : [];
+  const semesters: SemesterData[] = Array.isArray(semestersData) ? semestersData : [];
   const courses: CourseItem[] = Array.isArray(coursesData) ? coursesData : [];
   const faculties: FacultyItem[] = Array.isArray(facultyData) ? facultyData : [];
   const rooms: RoomItem[] = Array.isArray(roomsData) ? roomsData : [];
   const timeSlots: TimeSlotItem[] = Array.isArray(timeSlotsData) ? timeSlotsData : [];
   const sections: SectionItem[] = Array.isArray(sectionsData) ? sectionsData : [];
 
-  // Filtered courses by department + semester
-  const filteredCourses = courses.filter((c) => {
-    if (department && c.faculty?.department && !c.faculty.department.toLowerCase().includes(department.toLowerCase())) return false;
-    return true;
-  });
+  // Selected Department Object
+  const currentDepartmentObj = useMemo(
+    () => departments.find((d) => d.id === selectedDepartmentId),
+    [departments, selectedDepartmentId]
+  );
+  const currentDepartmentName = currentDepartmentObj?.name || "";
 
-  const filteredFaculty = faculties.filter((f) => {
-    if (department && f.department && !f.department.toLowerCase().includes(department.toLowerCase())) return false;
-    return true;
-  });
+  // Reset cascades on Department change
+  const handleDepartmentChange = (deptIdVal: string) => {
+    const newDeptId = deptIdVal ? Number(deptIdVal) : "";
+    setSelectedDepartmentId(newDeptId);
+    setSelectedSemester("");
+    setSelectedCourses([]);
+    setSelectedFaculty([]);
+  };
+
+  // Reset cascades on Semester change
+  const handleSemesterChange = (semVal: string) => {
+    const newSem = semVal ? Number(semVal) : "";
+    setSelectedSemester(newSem);
+    setSelectedCourses([]);
+    setSelectedFaculty([]);
+  };
 
   // Generate mutation
   const gen = useMutation({
     mutationFn: () => {
       const payload: Record<string, unknown> = {
-        name: "Generated Timetable",
+        name: `${currentDepartmentName || "Department"} - Semester ${selectedSemester || ""}`,
         optimize,
         max_iterations: maxIterations,
       };
-      if (department) payload.department = department;
-      if (semester) payload.semester = semester;
+      if (selectedDepartmentId) {
+        payload.department_id = selectedDepartmentId;
+        payload.department = currentDepartmentName;
+      }
+      if (selectedSemester) {
+        payload.semester = selectedSemester;
+      }
       if (selectedCourses.length) payload.courses = selectedCourses;
       if (timeStart) payload.time_start = timeStart;
       if (timeEnd) payload.time_end = timeEnd;
       if (selectedFaculty.length) payload.faculty = selectedFaculty;
       if (numSections > 0) payload.num_sections = numSections;
       if (numRooms > 0) payload.num_rooms = numRooms;
-      return generateTimetable(payload);
+      return generateTimetable(payload as any);
     },
     onSuccess: (res) => {
       const data = res.data as GenResult;
@@ -284,6 +349,11 @@ export default function GeneratePage() {
   });
 
   const handleGenerate = () => {
+    if (!isConfigurationReady) {
+      toast.error("Please complete all required configuration fields before generating.");
+      setPhase("validating");
+      return;
+    }
     setPhase("generating");
     setResult(null);
     gen.mutate();
@@ -301,60 +371,172 @@ export default function GeneratePage() {
     enabled: !!generatedId && phase === "success",
   });
 
-  // Preview timetable data (from form data, no assignments yet)
+  // Check if user has entered any input
+  const hasAnyInput = Boolean(
+    selectedDepartmentId !== "" ||
+    selectedSemester !== "" ||
+    selectedCourses.length > 0 ||
+    selectedFaculty.length > 0 ||
+    timeStart ||
+    timeEnd ||
+    numSections > 0 ||
+    numRooms > 0
+  );
+
+  // Check if ALL required fields are complete
+  const isConfigurationReady = Boolean(
+    selectedDepartmentId !== "" &&
+    selectedSemester !== "" &&
+    selectedCourses.length > 0 &&
+    selectedFaculty.length > 0 &&
+    timeStart &&
+    timeEnd &&
+    numSections > 0 &&
+    numRooms > 0
+  );
+
+  // Required field checks for validation status and missing field reporting
+  const requiredFieldChecks = useMemo(() => [
+    {
+      id: "department",
+      label: "Department",
+      ready: Boolean(selectedDepartmentId !== ""),
+      value: currentDepartmentName || "Not selected",
+    },
+    {
+      id: "semester",
+      label: "Semester",
+      ready: Boolean(selectedSemester !== ""),
+      value: selectedSemester ? `Semester ${selectedSemester}` : "Not selected",
+    },
+    {
+      id: "courses",
+      label: "Subjects (Courses)",
+      ready: selectedCourses.length > 0,
+      value: selectedCourses.length > 0 ? `${selectedCourses.length} selected` : "None selected",
+    },
+    {
+      id: "time",
+      label: "Subject Period Time",
+      ready: Boolean(timeStart && timeEnd),
+      value: timeStart && timeEnd ? `${timeStart} – ${timeEnd}` : (timeStart ? `From ${timeStart}` : (timeEnd ? `Until ${timeEnd}` : "Not configured")),
+    },
+    {
+      id: "faculty",
+      label: "Faculty",
+      ready: selectedFaculty.length > 0,
+      value: selectedFaculty.length > 0 ? `${selectedFaculty.length} selected` : "None selected",
+    },
+    {
+      id: "sections",
+      label: "Number of Sections",
+      ready: numSections > 0,
+      value: numSections > 0 ? `${numSections} section(s)` : "Not configured",
+    },
+    {
+      id: "rooms",
+      label: "Number of Required Rooms",
+      ready: numRooms > 0,
+      value: numRooms > 0 ? `${numRooms} room(s)` : "Not configured",
+    },
+  ], [selectedDepartmentId, currentDepartmentName, selectedSemester, selectedCourses, timeStart, timeEnd, selectedFaculty, numSections, numRooms]);
+
+  const missingFields = useMemo(
+    () => requiredFieldChecks.filter((c) => !c.ready),
+    [requiredFieldChecks]
+  );
+
+  // Preview timetable data (strictly derived from selected form data, only when configuration is ready)
   const previewTimetableData = useMemo(() => {
+    if (!isConfigurationReady) {
+      return {
+        metadata: {},
+        courses: [],
+        faculty: [],
+        rooms: [],
+        sections: [],
+        timeSlots: [],
+        entries: [],
+      };
+    }
+
+    // 1. Selected courses: only what the user explicitly selected
     const selectedCourseObjs = selectedCourses
       .map((id) => courses.find((c) => c.id === id))
       .filter(Boolean) as CourseItem[];
 
+    // 2. Selected faculty: only what the user explicitly selected
     const selectedFacultyObjs = selectedFaculty
       .map((id) => faculties.find((f) => f.id === id))
       .filter(Boolean) as FacultyItem[];
 
-    const selectedSectionObjs = sections;
+    // 3. Selected rooms: strictly limited to numRooms
+    const selectedRoomObjs = rooms.slice(0, numRooms);
+
+    // 4. Selected sections: sections matching selected courses, sliced to numSections
+    const selectedCourseIds = new Set(selectedCourses);
+    let matchedSections = sections.filter((s: any) => selectedCourseIds.has(s.course_id));
+    if (matchedSections.length === 0) {
+      matchedSections = sections;
+    }
+    const selectedSectionObjs = matchedSections.slice(0, numSections);
+
+    // 5. Filter time slots by configured timeStart and timeEnd
+    let filteredTimeSlots = timeSlots;
+    if (timeStart) {
+      filteredTimeSlots = filteredTimeSlots.filter(
+        (ts) => String(ts.start_time).slice(0, 5) >= timeStart
+      );
+    }
+    if (timeEnd) {
+      filteredTimeSlots = filteredTimeSlots.filter(
+        (ts) => String(ts.end_time).slice(0, 5) <= timeEnd
+      );
+    }
 
     const metadata = {
       universityName: undefined,
-      departmentName: department ? department.toUpperCase() : undefined,
-      semester: semester ? `SEMESTER ${semester}` : undefined,
+      departmentName: currentDepartmentName ? currentDepartmentName.toUpperCase() : undefined,
+      semester: selectedSemester ? `SEMESTER ${selectedSemester}` : undefined,
       academicYear: undefined,
       classCoordinator: undefined,
       coordinatorPhone: undefined,
     };
 
-    const dayNumbers = Array.from(
-      new Set(timeSlots.filter((ts) => !ts.is_break).map((ts) => ts.day_of_week))
-    ).sort();
-
     return {
       metadata,
-      courses: selectedCourseObjs.length > 0 ? selectedCourseObjs : courses,
-      faculty: selectedFacultyObjs.length > 0 ? selectedFacultyObjs : faculties,
-      rooms: numRooms > 0 ? rooms.slice(0, numRooms) : rooms,
+      courses: selectedCourseObjs,
+      faculty: selectedFacultyObjs,
+      rooms: selectedRoomObjs,
       sections: selectedSectionObjs,
-      timeSlots: timeSlots,
-      days: dayNumbers.length > 0 ? dayNumbers : [0, 1, 2, 3, 4],
+      timeSlots: filteredTimeSlots,
       entries: [], // Empty before generation
     };
   }, [
-    department, semester, selectedCourses, selectedFaculty,
-    numSections, numRooms, courses, faculties, rooms, sections, timeSlots,
+    isConfigurationReady,
+    currentDepartmentName,
+    selectedSemester,
+    selectedCourses,
+    selectedFaculty,
+    numSections,
+    numRooms,
+    courses,
+    faculties,
+    rooms,
+    sections,
+    timeSlots,
+    timeStart,
+    timeEnd,
   ]);
-
-  // After generation, build the full timetable data
-  const generatedTimetableData = useMemo(() => {
-    if (!generatedId || phase !== "success" || !result) return null;
-    return null; // Will be fetched separately
-  }, [generatedId, phase, result]);
 
   const handleReset = () => {
     setPhase("form");
     setResult(null);
     setGeneratedId(null);
+    setSelectedDepartmentId("");
+    setSelectedSemester("");
     setSelectedCourses([]);
     setSelectedFaculty([]);
-    setDepartment("");
-    setSemester("");
     setTimeStart("");
     setTimeEnd("");
     setNumSections(0);
@@ -371,25 +553,11 @@ export default function GeneratePage() {
     return "text-red-600";
   };
 
-  // Validation checks
-  const validationChecks = useMemo(() => {
-    const checks: Array<{ label: string; ok: boolean; detail: string }> = [
-      { label: "Courses", ok: selectedCourses.length > 0 || courses.length > 0, detail: `${selectedCourses.length > 0 ? selectedCourses.length : courses.length} course(s) available` },
-      { label: "Faculty", ok: selectedFaculty.length > 0 || faculties.length > 0, detail: `${selectedFaculty.length > 0 ? selectedFaculty.length : faculties.length} faculty member(s)` },
-      { label: "Rooms", ok: rooms.length > 0, detail: `${rooms.length} room(s) configured` },
-      { label: "Sections", ok: sections.length > 0 || numSections > 0, detail: `${sections.length} section(s) defined` },
-      { label: "Time Slots", ok: timeSlots.length > 0, detail: `${timeSlots.length} time slot(s) configured` },
-    ];
-    return checks;
-  }, [selectedCourses, selectedFaculty, rooms, sections, timeSlots, numSections, courses, faculties]);
-
-  const allValid = validationChecks.every((c) => c.ok);
-
   return (
     <AppShell>
       <PageHeader
         title="Generate Timetable"
-        description="Configure all options and generate your schedule"
+        description="Configure academic parameters and generate your conflict-free schedule"
         icon={<Wand2 className="h-5 w-5" />}
       />
 
@@ -397,50 +565,96 @@ export default function GeneratePage() {
         {/* Selection Form */}
         {phase === "form" && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="card p-6 space-y-6">
-            <h2 className="text-lg font-bold text-ink-900 flex items-center gap-2">
-              <Filter className="h-5 w-5 text-brand-600" />
-              Generation Options
-            </h2>
+            <div className="flex items-center justify-between border-b border-ink-100 pb-3">
+              <h2 className="text-lg font-bold text-ink-900 flex items-center gap-2">
+                <Filter className="h-5 w-5 text-brand-600" />
+                Data-Driven Generation Options
+              </h2>
+              <span className="text-xs font-medium text-ink-500 bg-ink-100 px-2.5 py-1 rounded-full">
+                Source: timetable.xlsx
+              </span>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* 1. DEPARTMENT DROPDOWN */}
               <div>
                 <label className="label">1. Department</label>
                 <select
                   className="select-field"
-                  value={department}
-                  onChange={(e) => { setDepartment(e.target.value); setSelectedCourses([]); setSelectedFaculty([]); }}
+                  value={selectedDepartmentId}
+                  onChange={(e) => handleDepartmentChange(e.target.value)}
+                  disabled={isLoadingDepts}
                 >
-                  <option value="">— All Departments —</option>
-                  {(departments ?? []).map((d: string) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
+                  {isLoadingDepts ? (
+                    <option value="">Loading departments...</option>
+                  ) : departments.length === 0 ? (
+                    <option value="">No departments available</option>
+                  ) : (
+                    <>
+                      <option value="">— Select Department —</option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} {d.code ? `(${d.code})` : ""}
+                        </option>
+                      ))}
+                    </>
+                  )}
                 </select>
               </div>
 
+              {/* 2. SEMESTER DROPDOWN */}
               <div>
                 <label className="label">2. Semester</label>
                 <select
                   className="select-field"
-                  value={semester}
-                  onChange={(e) => setSemester(e.target.value)}
+                  value={selectedSemester}
+                  onChange={(e) => handleSemesterChange(e.target.value)}
+                  disabled={!selectedDepartmentId || isLoadingSemesters}
                 >
-                  <option value="">— All Semesters —</option>
-                  {(semesters ?? []).map((s: string) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
+                  {!selectedDepartmentId ? (
+                    <option value="">Select department first</option>
+                  ) : isLoadingSemesters ? (
+                    <option value="">Loading semesters...</option>
+                  ) : semesters.length === 0 ? (
+                    <option value="">No semesters available</option>
+                  ) : (
+                    <>
+                      <option value="">— Select Semester —</option>
+                      {semesters.map((s) => (
+                        <option key={s.semester} value={s.semester}>
+                          {s.label || `Semester ${s.semester}`}
+                        </option>
+                      ))}
+                    </>
+                  )}
                 </select>
               </div>
 
+              {/* 3. SUBJECTS (COURSES) MULTI-SELECT */}
               <div className="md:col-span-2">
                 <MultiSelect<{ id: number; name: string }>
                   label="3. Subjects (Courses)"
-                  items={filteredCourses.map((c) => ({ id: c.id, name: `${c.code} — ${c.name}` }))}
+                  items={courses.map((c) => ({
+                    id: c.id,
+                    name: `${c.code} — ${c.name}${c.is_lab ? " (Lab)" : ""}`,
+                  }))}
                   selected={selectedCourses}
                   onChange={setSelectedCourses}
-                  placeholder="Select subjects..."
+                  disabled={!selectedDepartmentId || !selectedSemester || isLoadingCourses}
+                  placeholder={
+                    !selectedDepartmentId || !selectedSemester
+                      ? "Select department and semester first"
+                      : isLoadingCourses
+                      ? "Loading subjects..."
+                      : courses.length === 0
+                      ? "No subjects available for this department and semester"
+                      : "Select subjects..."
+                  }
+                  emptyText="No subjects available for this department and semester"
                 />
               </div>
 
+              {/* 4. SUBJECT PERIOD TIME */}
               <div>
                 <label className="label">4. Subject Period Time</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -461,16 +675,31 @@ export default function GeneratePage() {
                 </div>
               </div>
 
+              {/* 5. FACULTY MULTI-SELECT */}
               <div className="md:col-span-2">
                 <MultiSelect<{ id: number; name: string }>
                   label="5. Faculty"
-                  items={filteredFaculty.map((f) => ({ id: f.id, name: `${f.name} (${f.department || "—"})` }))}
+                  items={faculties.map((f) => ({
+                    id: f.id,
+                    name: `${f.name} (${f.department || currentDepartmentName || "—"})`,
+                  }))}
                   selected={selectedFaculty}
                   onChange={setSelectedFaculty}
-                  placeholder="Select faculty members..."
+                  disabled={!selectedDepartmentId || isLoadingFaculty}
+                  placeholder={
+                    !selectedDepartmentId
+                      ? "Select department first"
+                      : isLoadingFaculty
+                      ? "Loading faculty..."
+                      : faculties.length === 0
+                      ? "No faculty members found"
+                      : "Select faculty members..."
+                  }
+                  emptyText="No faculty available for this department"
                 />
               </div>
 
+              {/* 6. NUMBER OF SECTIONS */}
               <div>
                 <label className="label">6. Number of Sections</label>
                 <input
@@ -483,6 +712,7 @@ export default function GeneratePage() {
                 />
               </div>
 
+              {/* 7. NUMBER OF REQUIRED ROOMS */}
               <div>
                 <label className="label">7. Number of Required Rooms</label>
                 <input
@@ -501,7 +731,7 @@ export default function GeneratePage() {
               <div className="flex items-center justify-between p-3 rounded-xl bg-ink-50 border border-ink-100">
                 <div>
                   <p className="text-sm font-medium text-ink-900">Optimization</p>
-                  <p className="text-xs text-ink-500">Enable constraint-aware scheduling</p>
+                  <p className="text-xs text-ink-500">Enable constraint-aware DSATUR graph coloring optimization</p>
                 </div>
                 <button
                   onClick={() => setOptimize(!optimize)}
@@ -554,27 +784,65 @@ export default function GeneratePage() {
           </motion.div>
         )}
 
-        {/* Validating / Preview State */}
+        {/* Validating State */}
         {phase === "validating" && (
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="card border-brand-200 bg-brand-50 p-6 space-y-4">
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className={`card border-2 p-6 space-y-4 ${isConfigurationReady ? "border-emerald-200 bg-emerald-50/50" : "border-amber-200 bg-amber-50/50"}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <CheckCircle2 className="h-5 w-5 text-brand-600" />
-                <h3 className="font-semibold text-brand-700">Configuration Validation Results</h3>
+                {isConfigurationReady ? (
+                  <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="h-6 w-6 text-amber-600" />
+                )}
+                <div>
+                  <h3 className={`font-bold text-base ${isConfigurationReady ? "text-emerald-900" : "text-amber-900"}`}>
+                    {isConfigurationReady ? "Configuration Valid & Ready" : "Configuration Incomplete"}
+                  </h3>
+                  <p className={`text-xs ${isConfigurationReady ? "text-emerald-700" : "text-amber-700"}`}>
+                    {isConfigurationReady
+                      ? "All required fields are configured. Review the data-driven timetable preview below and proceed to generation."
+                      : "Please provide all required configuration inputs before generating the timetable schedule."}
+                  </p>
+                </div>
               </div>
               <button onClick={() => setPhase("form")} className="btn-secondary text-xs">
                 Back to Form
               </button>
             </div>
-            <div className="space-y-2 text-sm text-brand-700">
-              {validationChecks.map((check, i) => (
-                <p key={i}>
-                  {check.ok ? "✓" : "✗"} {check.label}: {check.detail}
-                </p>
-              ))}
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-ink-700 uppercase tracking-wide">
+                Validation Checklist:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                {requiredFieldChecks.map((field) => (
+                  <div
+                    key={field.id}
+                    className={`flex items-center gap-2 p-2.5 rounded-lg border ${
+                      field.ready
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                        : "bg-red-50 border-red-200 text-red-800 font-medium"
+                    }`}
+                  >
+                    {field.ready ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <X className="h-4 w-4 text-red-500 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <span className="font-semibold">{field.label}:</span>{" "}
+                      <span className="truncate opacity-90">{field.value}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            {allValid && (
-              <p className="mt-2 text-emerald-700 font-semibold text-sm">✓ All required data is configured. Review preview template below and click Generate Timetable.</p>
+
+            {!isConfigurationReady && (
+              <div className="p-3 bg-amber-100/70 border border-amber-300 rounded-lg text-xs text-amber-900">
+                <span className="font-bold">Missing {missingFields.length} required field(s):</span>{" "}
+                {missingFields.map((f) => f.label).join(", ")}.
+              </div>
             )}
           </motion.div>
         )}
@@ -589,23 +857,110 @@ export default function GeneratePage() {
                   Institutional Timetable Template Preview
                 </h3>
                 <p className="text-xs text-ink-500">
-                  Pre-generation template layout showing configured time slots, breaks, and legends for selected subjects/faculty.
+                  {isConfigurationReady
+                    ? "Live data-driven template preview reflecting your configured department, subjects, period times, and faculty."
+                    : hasAnyInput
+                    ? "Complete the required timetable configuration to preview the timetable."
+                    : "Select the required timetable options to preview your timetable."}
                 </p>
               </div>
-              <span className="badge badge-info">Pre-Generation Preview</span>
+              <span
+                className={`badge ${
+                  isConfigurationReady
+                    ? "badge-success"
+                    : hasAnyInput
+                    ? "badge-warning"
+                    : "badge-neutral"
+                }`}
+              >
+                {isConfigurationReady
+                  ? "Data-Driven Preview"
+                  : hasAnyInput
+                  ? "Configuration Incomplete"
+                  : "No Configuration Selected"}
+              </span>
             </div>
 
-            <InstitutionalTimetableSheet
-              entries={[]}
-              timeSlots={previewTimetableData.timeSlots}
-              courses={previewTimetableData.courses}
-              faculty={previewTimetableData.faculty}
-              rooms={previewTimetableData.rooms}
-              sections={previewTimetableData.sections}
-              title={department ? `DEPARTMENT OF ${department.toUpperCase()}` : "INSTITUTIONAL TIMETABLE TEMPLATE"}
-              subtitle={`SEMESTER: ${semester || "ALL"} • PRE-GENERATION PREVIEW`}
-              showExportButtons={false}
-            />
+            {/* STATE 1: No input selected */}
+            {!hasAnyInput && (
+              <div className="text-center py-12 px-6 border-2 border-dashed border-ink-200 rounded-2xl bg-ink-50/50 space-y-3">
+                <div className="h-12 w-12 mx-auto rounded-xl bg-ink-100 text-ink-500 flex items-center justify-center">
+                  <CalendarRange className="h-6 w-6" />
+                </div>
+                <div className="max-w-md mx-auto space-y-1">
+                  <h4 className="text-base font-bold text-ink-900">
+                    No Configuration Selected
+                  </h4>
+                  <p className="text-xs text-ink-500">
+                    Select the required timetable options to preview your timetable.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* STATE 2: Incomplete input */}
+            {hasAnyInput && !isConfigurationReady && (
+              <div className="py-8 px-6 border-2 border-dashed border-amber-200 rounded-2xl bg-amber-50/40 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-amber-900">
+                      Configuration Incomplete
+                    </h4>
+                    <p className="text-xs text-amber-700">
+                      Complete the required timetable configuration to preview the timetable.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white/90 border border-amber-200 rounded-xl p-4 space-y-2">
+                  <p className="text-xs font-semibold text-ink-700 uppercase tracking-wide">
+                    Required Timetable Configuration Checklist:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                    {requiredFieldChecks.map((field) => (
+                      <div
+                        key={field.id}
+                        className={`flex items-center gap-2 p-2 rounded-lg border ${
+                          field.ready
+                            ? "bg-emerald-50/70 border-emerald-200 text-emerald-800"
+                            : "bg-red-50/70 border-red-200 text-red-800"
+                        }`}
+                      >
+                        {field.ready ? (
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                        ) : (
+                          <X className="h-4 w-4 text-red-500 shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <span className="font-semibold">{field.label}:</span>{" "}
+                          <span className="truncate opacity-80">{field.value}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STATE 3: Complete configuration available */}
+            {isConfigurationReady && (
+              <div className="overflow-x-auto">
+                <InstitutionalTimetableSheet
+                  entries={[]}
+                  timeSlots={previewTimetableData.timeSlots}
+                  courses={previewTimetableData.courses}
+                  faculty={previewTimetableData.faculty}
+                  rooms={previewTimetableData.rooms}
+                  sections={previewTimetableData.sections}
+                  title={`DEPARTMENT OF ${currentDepartmentName ? currentDepartmentName.toUpperCase() : "ACADEMICS"}`}
+                  subtitle={`SEMESTER ${selectedSemester} • PRE-GENERATION PREVIEW`}
+                  showExportButtons={false}
+                />
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -683,7 +1038,7 @@ export default function GeneratePage() {
                   rooms={rooms}
                   sections={sections}
                   title="Official Institutional Timetable Schedule"
-                  subtitle={department ? `Department: ${department} • Generated Schedule` : "Generated Schedule"}
+                  subtitle={currentDepartmentName ? `Department: ${currentDepartmentName} • Semester ${selectedSemester || ""}` : "Generated Schedule"}
                   showExportButtons={true}
                 />
               </div>
@@ -707,54 +1062,6 @@ export default function GeneratePage() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* PRE-GENERATION PREVIEW */}
-        {phase === "form" && (
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="card p-4 overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-ink-900 flex items-center gap-2">
-                <Eye className="h-5 w-5 text-brand-600" />
-                Institutional Timetable Preview
-              </h3>
-              <span className="text-xs text-ink-500">
-                Preview updates as you configure options
-              </span>
-            </div>
-
-            {/* Validation Summary */}
-            <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
-              <div className="font-semibold text-ink-700 mb-1">Configuration Validation</div>
-              <div className="flex flex-wrap gap-2">
-                {validationChecks.map((check, i) => (
-                  <span
-                    key={i}
-                    className={`px-2 py-0.5 rounded-full ${check.ok ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}
-                  >
-                    {check.ok ? "✓" : "✗"} {check.label}
-                  </span>
-                ))}
-              </div>
-              {!allValid && (
-                <p className="mt-1 text-amber-600">Please configure all required fields before generating.</p>
-              )}
-            </div>
-
-            {/* Preview Table */}
-            <div className="overflow-x-auto">
-              <InstitutionalTimetableSheet
-                entries={[]}
-                timeSlots={previewTimetableData.timeSlots}
-                courses={previewTimetableData.courses}
-                faculty={previewTimetableData.faculty}
-                rooms={previewTimetableData.rooms}
-                sections={previewTimetableData.sections}
-                title="Preview — Institutional Timetable"
-                subtitle={department ? `Department: ${department} • Preview` : "Preview — Configure and Generate"}
-                showExportButtons={false}
-              />
-            </div>
-          </motion.div>
-        )}
       </div>
     </AppShell>
   );

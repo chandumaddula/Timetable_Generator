@@ -1,16 +1,20 @@
 """All REST API endpoints."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime, time
+import io
+import os
 
 from app.database import get_db
 from app.models.base import (
-    Course, Faculty, Section, Room, TimeSlot, Constraint,
+    Department, Course, Faculty, Section, Room, TimeSlot, Constraint,
     FacultyAvailability, RoomAvailability, FacultyPreference,
     Timetable, TimetableEntry
 )
 from app.schemas import (
+    DepartmentCreate, DepartmentUpdate, DepartmentOut, SemesterOut,
     CourseCreate, CourseUpdate, CourseOut,
     FacultyCreate, FacultyUpdate, FacultyOut,
     SectionCreate, SectionUpdate, SectionOut,
@@ -23,11 +27,14 @@ from app.schemas import (
     TimetableCreate, TimetableUpdate, TimetableOut,
     TimetableEntryCreate, TimetableEntryUpdate, TimetableEntryOut,
     GenerateTimetableRequest, ValidationResult, AnalyticsData,
+    ExcelImportResponse, ExcelImportCounts,
 )
-from sqlalchemy import distinct, func
+from sqlalchemy import distinct, func, or_
 from app.algorithms.scheduler import TimetableScheduler, GenerationInput
 from app.validators import TimetableValidator, assignments_from_timetable_entries
 from app.constraints import ConstraintEngine
+from scripts.import_excel import import_excel_data
+import re
 
 router = APIRouter(tags=["API v1"])
 
@@ -36,10 +43,89 @@ router = APIRouter(tags=["API v1"])
 async def health():
     return {"status": "ok", "version": "0.1.0"}
 
+# ==================== DEPARTMENTS ====================
+@router.get("/departments", response_model=List[DepartmentOut])
+def list_departments(db: Session = Depends(get_db)):
+    """Get all departments from database."""
+    depts = db.query(Department).order_by(Department.name).all()
+    if not depts:
+        # Fallback: create from faculty/courses if empty
+        names = db.query(distinct(Faculty.department)).filter(Faculty.department.isnot(None)).all()
+        for (n,) in names:
+            if n:
+                d = Department(name=n, code=n[:4].upper())
+                db.add(d)
+        db.commit()
+        depts = db.query(Department).order_by(Department.name).all()
+    return depts
+
+@router.get("/departments/{dept_id}", response_model=DepartmentOut)
+def get_department(dept_id: int, db: Session = Depends(get_db)):
+    d = db.query(Department).filter(Department.id == dept_id).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="Department not found")
+    return d
+
+@router.post("/departments", response_model=DepartmentOut)
+def create_department(data: DepartmentCreate, db: Session = Depends(get_db)):
+    if db.query(Department).filter(Department.name == data.name).first():
+        raise HTTPException(status_code=400, detail="Department with this name already exists")
+    dept = Department(**data.model_dump())
+    db.add(dept)
+    db.commit()
+    db.refresh(dept)
+    return dept
+
+@router.put("/departments/{dept_id}", response_model=DepartmentOut)
+def update_department(dept_id: int, data: DepartmentUpdate, db: Session = Depends(get_db)):
+    dept = db.query(Department).filter(Department.id == dept_id).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(dept, k, v)
+    db.commit()
+    db.refresh(dept)
+    return dept
+
+@router.delete("/departments/{dept_id}")
+def delete_department(dept_id: int, db: Session = Depends(get_db)):
+    dept = db.query(Department).filter(Department.id == dept_id).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    db.delete(dept)
+    db.commit()
+    return {"deleted": True}
+
 # ==================== COURSES ====================
 @router.get("/courses", response_model=List[CourseOut])
-def list_courses(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return db.query(Course).offset(skip).limit(limit).all()
+def list_courses(
+    department_id: Optional[int] = None,
+    department: Optional[str] = None,
+    semester: Optional[str] = None,
+    is_lab: Optional[bool] = None,
+    skip: int = 0,
+    limit: int = 200,
+    db: Session = Depends(get_db)
+):
+    """List courses with authoritative backend filtering by department_id and semester."""
+    q = db.query(Course)
+    if department_id:
+        q = q.filter(Course.department_id == department_id)
+    elif department:
+        q = q.join(Department, Course.department_id == Department.id, isouter=True).filter(
+            or_(
+                Department.name.ilike(f"%{department}%"),
+                Department.code.ilike(f"%{department}%")
+            )
+        )
+    if semester:
+        match = re.search(r'\d+', semester)
+        if match:
+            sem_num = int(match.group())
+            q = q.filter(Course.semester == sem_num)
+    if is_lab is not None:
+        q = q.filter(Course.is_lab == is_lab)
+    return q.offset(skip).limit(limit).all()
 
 @router.get("/courses/{course_id}", response_model=CourseOut)
 def get_course(course_id: int, db: Session = Depends(get_db)):
@@ -80,8 +166,38 @@ def delete_course(course_id: int, db: Session = Depends(get_db)):
 
 # ==================== FACULTY ====================
 @router.get("/faculty", response_model=List[FacultyOut])
-def list_faculty(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return db.query(Faculty).offset(skip).limit(limit).all()
+def list_faculty(
+    department_id: Optional[int] = None,
+    department: Optional[str] = None,
+    semester: Optional[str] = None,
+    course_ids: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 200,
+    db: Session = Depends(get_db)
+):
+    """List faculty members with optional filtering by department or assigned courses."""
+    q = db.query(Faculty)
+    if course_ids:
+        try:
+            c_ids = [int(x.strip()) for x in course_ids.split(",") if x.strip().isdigit()]
+            if c_ids:
+                assigned_faculty_ids = db.query(Course.faculty_id).filter(
+                    Course.id.in_(c_ids),
+                    Course.faculty_id.isnot(None)
+                ).distinct()
+                q = q.filter(Faculty.id.in_(assigned_faculty_ids))
+        except Exception:
+            pass
+    elif department_id:
+        q = q.filter(Faculty.department_id == department_id)
+    elif department:
+        q = q.filter(
+            or_(
+                Faculty.department.ilike(f"%{department}%"),
+                Faculty.department_rel.has(Department.name.ilike(f"%{department}%"))
+            )
+        )
+    return q.offset(skip).limit(limit).all()
 
 @router.get("/faculty/{faculty_id}", response_model=FacultyOut)
 def get_faculty(faculty_id: int, db: Session = Depends(get_db)):
@@ -328,20 +444,32 @@ def list_faculty_preferences(
         q = q.filter(FacultyPreference.faculty_id == faculty_id)
     return q.all()
 
-# ==================== TIMETABLE GENERATION ====================
-# -- Department & Semester endpoints --
-@router.get("/departments", response_model=List[str])
-def list_departments(db: Session = Depends(get_db)):
-    """Get distinct departments from faculty."""
-    depts = db.query(distinct(Faculty.department)).filter(Faculty.department.isnot(None)).all()
-    return [d[0] for d in depts if d[0]]
+# -- Semester endpoint --
+@router.get("/semesters", response_model=List[SemesterOut])
+def list_semesters(
+    department_id: Optional[int] = None,
+    department: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get distinct semesters available for a specific department."""
+    q = db.query(distinct(Course.semester)).filter(Course.semester.isnot(None))
+    if department_id:
+        q = q.filter(Course.department_id == department_id)
+    elif department:
+        q = q.join(Department, Course.department_id == Department.id, isouter=True).filter(
+            or_(
+                Department.name.ilike(f"%{department}%"),
+                Department.code.ilike(f"%{department}%")
+            )
+        )
 
-@router.get("/semesters", response_model=List[str])
-def list_semesters(db: Session = Depends(get_db)):
-    """Get distinct semesters from sections."""
-    # Semester is often encoded in section_number like "Sec-A1" where A = semester
-    # For now, return common semesters
-    return ["Semester 1", "Semester 2", "Semester 3", "Semester 4", "Semester 5", "Semester 6", "Semester 7", "Semester 8"]
+    sem_results = [s[0] for s in q.all() if s[0] is not None]
+    sem_results.sort()
+
+    if not sem_results and not department_id and not department:
+        sem_results = [1, 2, 3, 4, 5, 6, 7, 8]
+
+    return [{"semester": s, "label": f"Semester {s}"} for s in sem_results]
 
 
 @router.post("/timetable/generate")
@@ -353,34 +481,59 @@ async def generate_timetable(data: GenerateTimetableRequest, db: Session = Depen
     rooms_q = db.query(Room)
     time_slots_q = db.query(TimeSlot)
 
-    # Apply department filter (on faculty)
-    if data.department:
-        faculty_q = faculty_q.filter(Faculty.department == data.department)
-        # Get faculty IDs for this department
-        fac_ids = [f.id for f in faculty_q.all()]
-        # Filter courses by those faculty
-        courses_q = courses_q.filter(Course.faculty_id.in_(fac_ids))
-        # Filter sections by those courses
-        course_ids = [c.id for c in courses_q.all()]
-        sections_q = sections_q.filter(Section.course_id.in_(course_ids))
+    # Apply department filter
+    if data.department_id:
+        courses_q = courses_q.filter(Course.department_id == data.department_id)
+        faculty_q = faculty_q.filter(
+            or_(
+                Faculty.department_id == data.department_id,
+                Faculty.department_rel.has(Department.id == data.department_id)
+            )
+        )
+    elif data.department:
+        courses_q = courses_q.join(Department, Course.department_id == Department.id, isouter=True).filter(
+            or_(
+                Department.name.ilike(f"%{data.department}%"),
+                Department.code.ilike(f"%{data.department}%")
+            )
+        )
+        faculty_q = faculty_q.filter(
+            or_(
+                Faculty.department.ilike(f"%{data.department}%"),
+                Faculty.department_rel.has(Department.name.ilike(f"%{data.department}%"))
+            )
+        )
 
-    # Apply semester filter (on section_number pattern)
-    if data.semester:
-        # Extract semester from section_number like "Sec-A1" -> "A"
-        # For simplicity, filter sections where section_number contains semester char
-        sem_map = {
-            "Semester 1": "A", "Semester 2": "B", "Semester 3": "C", "Semester 4": "D",
-            "Semester 5": "E", "Semester 6": "F", "Semester 7": "G", "Semester 8": "H",
-        }
-        sem_char = sem_map.get(data.semester, "")
-        if sem_char:
-            sections_q = sections_q.filter(Section.section_number.like(f"%{sem_char}%"))
+    # Apply semester filter
+    if data.semester is not None:
+        sem_num = None
+        if isinstance(data.semester, int):
+            sem_num = data.semester
+        else:
+            match = re.search(r'\d+', str(data.semester))
+            if match:
+                sem_num = int(match.group())
+        if sem_num:
+            courses_q = courses_q.filter(Course.semester == sem_num)
 
     # Apply course filter
     if data.courses:
         courses_q = courses_q.filter(Course.id.in_(data.courses))
-        course_ids = [c.id for c in courses_q.all()]
+
+    # Fetch courses matching filters
+    courses = courses_q.all()
+    course_ids = [c.id for c in courses]
+
+    if course_ids:
         sections_q = sections_q.filter(Section.course_id.in_(course_ids))
+        assigned_faculty_ids = [c.faculty_id for c in courses if c.faculty_id]
+        if assigned_faculty_ids:
+            faculty_q = faculty_q.filter(
+                or_(
+                    Faculty.id.in_(assigned_faculty_ids),
+                    Faculty.department_id == data.department_id if data.department_id else False
+                )
+            )
 
     # Apply time slot filters
     if data.time_start or data.time_end:
@@ -401,7 +554,6 @@ async def generate_timetable(data: GenerateTimetableRequest, db: Session = Depen
     if data.num_rooms:
         rooms_q = rooms_q.limit(data.num_rooms)
 
-    courses = courses_q.all()
     sections = sections_q.all()
     faculty = faculty_q.all()
     rooms = rooms_q.all()
@@ -468,6 +620,7 @@ async def generate_timetable(data: GenerateTimetableRequest, db: Session = Depen
             "rooms_count": len(rooms),
             "time_slots_count": len(time_slots),
             "department": data.department,
+            "department_id": data.department_id,
             "semester": data.semester,
             "num_sections": data.num_sections,
             "num_rooms": data.num_rooms,
@@ -646,3 +799,40 @@ def _format_timetable_entries(entries, db: Session) -> List[dict]:
             "entry_type": e.entry_type,
         })
     return result
+
+# ==================== EXCEL IMPORT / EXPORT ====================
+@router.post("/import/excel", response_model=ExcelImportResponse)
+async def upload_excel_timetable(
+    file: UploadFile = File(...),
+    clear_existing: bool = Query(False, description="Clear existing database tables before importing"),
+    db: Session = Depends(get_db)
+):
+    """Import timetable configuration (Faculty, Courses, Sections, Rooms, TimeSlots, Constraints) from an Excel (.xlsx) file."""
+    if not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel (.xlsx) file.")
+    
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    result = import_excel_data(contents, db, clear_existing=clear_existing)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    
+    return result
+
+@router.get("/export/excel-template")
+def download_excel_template():
+    """Download the official timetable Excel template (.xlsx)."""
+    template_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "timetable.xlsx")
+    if not os.path.exists(template_path):
+        raise HTTPException(status_code=404, detail="Template file not found.")
+    
+    with open(template_path, "rb") as f:
+        file_bytes = f.read()
+
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=timetable_template.xlsx"}
+    )

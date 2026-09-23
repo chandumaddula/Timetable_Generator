@@ -168,35 +168,39 @@ def seed_rooms(db, n=10):
     return rooms
 
 
-def seed_time_slots(db, n=30):
+def seed_time_slots(db):
     days = [0, 1, 2, 3, 4]  # Mon-Fri
     slots = []
-    idx = 0
-    slot_times = []
-    # Generate fixed time blocks across 5 days: 8-9, 9-10, ..., 17-18 (10 slots/day)
-    base_slots = []
+    idx = 1
+    # Standard period hours: 8-9, 9-10, 10-11, 11-12, 12-13 (Break), 13-14, 14-15, 15-16, 16-17
+    hours = [
+        (8, 9, False, "Period 1"),
+        (9, 10, False, "Period 2"),
+        (10, 11, False, "Period 3"),
+        (11, 12, False, "Period 4"),
+        (12, 13, True, "Lunch Break"),
+        (13, 14, False, "Period 5"),
+        (14, 15, False, "Period 6"),
+        (15, 16, False, "Period 7"),
+        (16, 17, False, "Period 8"),
+    ]
     for day in days:
-        for hour in range(8, 18):
-            start = time(hour, 0)
-            end = time(hour + 1, 0)
-            base_slots.append((day, start, end))
-    # base_slots has 50 slots; seed n=30 of them
-    chosen = random.sample(base_slots, n)
-    # Insert 5 break slots
-    for bi in range(5):
-        slots.append(TimeSlot(day_of_week=bi, start_time=time(12, 0), end_time=time(13, 0), is_break=True, label=f"Lunch Break {bi+1}"))
-    for d, s, e in chosen:
-        slots.append(TimeSlot(day_of_week=d, start_time=s, end_time=e, is_break=False, label=f"Slot {idx+1}"))
-        idx += 1
+        for start_h, end_h, is_brk, label_prefix in hours:
+            lbl = f"{label_prefix}" if is_brk else f"Slot {idx}"
+            if not is_brk:
+                idx += 1
+            slots.append(TimeSlot(
+                day_of_week=day,
+                start_time=time(start_h, 0),
+                end_time=time(end_h, 0),
+                is_break=is_brk,
+                label=lbl
+            ))
     db.add_all(slots)
     db.commit()
     for s in slots:
         db.refresh(s)
-    # Ensure we have between 25-35 slots
-    if len(slots) < 25:
-        extra = seed_time_slots(db, 25 - len(slots))
-        slots.extend(extra)
-    return slots[:35] if len(slots) > 35 else slots
+    return slots
 
 
 def seed_availability(db, faculty, time_slots):
@@ -354,7 +358,7 @@ def seed_all():
     rooms = seed_rooms(db, 10)
     print(f"Seeded {len(rooms)} rooms")
 
-    time_slots = seed_time_slots(db, 30)
+    time_slots = seed_time_slots(db)
     print(f"Seeded {len(time_slots)} time slots")
 
     avail = seed_availability(db, faculty, time_slots)

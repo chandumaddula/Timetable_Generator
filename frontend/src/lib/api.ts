@@ -59,8 +59,14 @@ export const register = (data: {
 export const getMe = () => api.get("/api/auth/me");
 
 // --- Courses ---
-export const getCourses = (params?: { skip?: number; limit?: number }) =>
-  api.get("/api/v1/courses", { params });
+export const getCourses = (params?: {
+  department_id?: number;
+  department?: string;
+  semester?: number | string;
+  is_lab?: boolean;
+  skip?: number;
+  limit?: number;
+}) => api.get("/api/v1/courses", { params });
 
 export const getCourse = (id: number) => api.get(`/api/v1/courses/${id}`);
 
@@ -74,8 +80,14 @@ export const deleteCourse = (id: number) =>
   api.delete(`/api/v1/courses/${id}`);
 
 // --- Faculty ---
-export const getFaculty = (params?: { skip?: number; limit?: number }) =>
-  api.get("/api/v1/faculty", { params });
+export const getFaculty = (params?: {
+  department_id?: number;
+  department?: string;
+  semester?: string;
+  course_ids?: string;
+  skip?: number;
+  limit?: number;
+}) => api.get("/api/v1/faculty", { params });
 
 export const getFacultyMember = (id: number) => api.get(`/api/v1/faculty/${id}`);
 
@@ -140,8 +152,9 @@ export const generateTimetable = (data: {
   rooms?: number[];
   faculty?: number[];
   courses?: number[];
+  department_id?: number;
   department?: string;
-  semester?: string;
+  semester?: number | string;
   time_start?: string;
   time_end?: string;
   num_sections?: number;
@@ -152,7 +165,13 @@ export const generateTimetable = (data: {
 
 // --- Departments & Semesters ---
 export const getDepartments = () => api.get("/api/v1/departments");
-export const getSemesters = () => api.get("/api/v1/semesters");
+export const getSemesters = (departmentId?: number | string, department?: string) =>
+  api.get("/api/v1/semesters", {
+    params: {
+      ...(departmentId ? { department_id: departmentId } : {}),
+      ...(department ? { department } : {}),
+    },
+  });
 
 // --- Institution metadata ---
 export const getInstitutionMetadata = () =>

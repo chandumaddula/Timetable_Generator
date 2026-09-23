@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr, field_validator
-from typing import Optional, List
+from typing import Optional, List, Union, Dict
 from datetime import time, datetime
 from enum import Enum
 
@@ -69,10 +69,30 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+# ---- Department ----
+class DepartmentBase(BaseModel):
+    name: str = Field(..., max_length=100)
+    code: Optional[str] = Field(None, max_length=20)
+    description: Optional[str] = None
+
+class DepartmentCreate(DepartmentBase):
+    pass
+
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    description: Optional[str] = None
+
+class DepartmentOut(DepartmentBase, TimestampMixin):
+    id: int
+    class Config:
+        from_attributes = True
+
 # ---- Faculty ----
 class FacultyBase(BaseModel):
     name: str
     department: Optional[str] = None
+    department_id: Optional[int] = None
     email: Optional[str] = None
     is_full_time: bool = True
     max_hours_per_week: int = 20
@@ -83,12 +103,14 @@ class FacultyCreate(FacultyBase):
 class FacultyUpdate(BaseModel):
     name: Optional[str] = None
     department: Optional[str] = None
+    department_id: Optional[int] = None
     email: Optional[str] = None
     is_full_time: Optional[bool] = None
     max_hours_per_week: Optional[int] = None
 
 class FacultyOut(FacultyBase, TimestampMixin):
     id: int
+    department_rel: Optional[DepartmentOut] = None
     class Config:
         from_attributes = True
 
@@ -99,6 +121,8 @@ class CourseBase(BaseModel):
     description: Optional[str] = None
     credits: int = 3
     faculty_id: Optional[int] = None
+    department_id: Optional[int] = None
+    semester: Optional[int] = None
     is_lab: bool = False
     default_periods_per_week: int = 3
     min_periods: int = 1
@@ -111,12 +135,15 @@ class CourseUpdate(BaseModel):
     description: Optional[str] = None
     credits: Optional[int] = None
     faculty_id: Optional[int] = None
+    department_id: Optional[int] = None
+    semester: Optional[int] = None
     is_lab: Optional[bool] = None
     default_periods_per_week: Optional[int] = None
     min_periods: Optional[int] = None
 
 class CourseOut(CourseBase, TimestampMixin):
     id: int
+    department: Optional[DepartmentOut] = None
     faculty: Optional[FacultyOut] = None
     class Config:
         from_attributes = True
@@ -320,6 +347,11 @@ class TimetableEntryOut(TimetableEntryBase, TimestampMixin):
     class Config:
         from_attributes = True
 
+# ---- Semester ----
+class SemesterOut(BaseModel):
+    semester: int
+    label: str
+
 # ---- Generation Request ----
 class GenerateTimetableRequest(BaseModel):
     name: str = "Generated Timetable"
@@ -328,8 +360,9 @@ class GenerateTimetableRequest(BaseModel):
     rooms: Optional[List[int]] = None  # filter by room IDs
     faculty: Optional[List[int]] = None  # filter by faculty IDs
     courses: Optional[List[int]] = None  # filter by course/subject IDs
-    department: Optional[str] = None  # filter by department
-    semester: Optional[str] = None  # filter by semester
+    department_id: Optional[int] = None  # filter by department ID
+    department: Optional[str] = None  # filter by department name
+    semester: Optional[Union[int, str]] = None  # filter by semester number or string
     time_start: Optional[str] = None  # filter time slots start time (HH:MM)
     time_end: Optional[str] = None  # filter time slots end time (HH:MM)
     num_sections: Optional[int] = None  # number of sections to generate for
@@ -359,3 +392,19 @@ class AnalyticsData(BaseModel):
     time_slot_utilization: dict
     section_load: dict
     course_frequency: dict
+
+# ---- Excel Import ----
+class ExcelImportCounts(BaseModel):
+    faculty: int = 0
+    courses: int = 0
+    sections: int = 0
+    rooms: int = 0
+    time_slots: int = 0
+    constraints: int = 0
+
+class ExcelImportResponse(BaseModel):
+    success: bool
+    message: str
+    counts: ExcelImportCounts
+    errors: List[str] = []
+
