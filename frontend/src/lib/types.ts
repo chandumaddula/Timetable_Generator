@@ -19,13 +19,14 @@ export interface Department extends Record<string, unknown> {
 }
 
 export interface SemesterItem {
-  semester: number;
+  semester: string;
   label: string;
 }
 
 export interface Faculty extends Record<string, unknown> {
   id: number;
   name: string;
+  initials?: string;
   department?: string;
   department_id?: number;
   department_rel?: Department;
@@ -43,7 +44,7 @@ export interface Course extends Record<string, unknown> {
   description?: string;
   department_id?: number;
   department?: Department;
-  semester?: number;
+  semester?: string;
   credits: number;
   faculty_id?: number;
   faculty?: Faculty;

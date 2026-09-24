@@ -61,9 +61,18 @@ def init_db():
                         pass
 
                 add_col_if_missing("faculty", "department_id", "INTEGER")
+                add_col_if_missing("faculty", "initials", "VARCHAR(20)")
                 add_col_if_missing("courses", "department_id", "INTEGER")
-                add_col_if_missing("courses", "semester", "INTEGER")
+                add_col_if_missing("courses", "semester", "VARCHAR(50)")
                 add_col_if_missing("rooms", "department_id", "INTEGER")
+
+                # Remove unique index on courses.code so course codes can be shared across departments/semesters
+                try:
+                    conn.execute(text("DROP INDEX IF EXISTS ix_courses_code"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_courses_code ON courses (code)"))
+                    conn.commit()
+                except Exception:
+                    pass
         except Exception:
             pass
 

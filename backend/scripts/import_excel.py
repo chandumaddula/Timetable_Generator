@@ -170,15 +170,131 @@ def import_excel_data(
                 records.append(record)
             return records
 
-        # 1. DEPARTMENTS
+        # 1. PRIMARY SHEET: "BE Subjects" / "Subjects"
+        be_subject_records = get_sheet_records("BE Subjects")
+        if not be_subject_records:
+            be_subject_records = get_sheet_records("Subjects")
+        if not be_subject_records:
+            be_subject_records = get_sheet_records("BE_Subjects")
+
+        # In-memory lookup maps for efficiency & uniqueness
         dept_name_map: Dict[str, Department] = {}
-        dept_code_map: Dict[str, Department] = {}
         for d in db.query(Department).all():
             if d.name:
                 dept_name_map[d.name.strip().lower()] = d
-            if d.code:
-                dept_code_map[d.code.strip().lower()] = d
 
+        faculty_name_map: Dict[str, Faculty] = {}
+        for f in db.query(Faculty).all():
+            if f.name:
+                faculty_name_map[f.name.strip().lower()] = f
+
+        # Import from "BE Subjects" sheet if present
+        if be_subject_records:
+            for idx, row in enumerate(be_subject_records, start=2):
+                dept_val = str(row.get("department") or row.get("dept") or "").strip()
+                sem_val = str(row.get("semester") or row.get("sem") or "").strip()
+                code_val = str(row.get("subject code") or row.get("subject_code") or row.get("code") or "").strip()
+                name_val = str(row.get("subject name") or row.get("subject_name") or row.get("name") or "").strip()
+                fac_name_val = str(row.get("faculty name") or row.get("faculty_name") or row.get("faculty") or "").strip()
+                fac_initials_val = str(row.get("faculty initials") or row.get("faculty_initials") or row.get("initials") or "").strip() or None
+
+                if not dept_val:
+                    warnings.append(f"BE Subjects row {idx}: Missing Department. Skipping row.")
+                    continue
+                if not sem_val:
+                    warnings.append(f"BE Subjects row {idx}: Missing Semester. Skipping row.")
+                    continue
+
+                # Ensure Department exists in database
+                d_key = dept_val.lower()
+                d_obj = dept_name_map.get(d_key)
+                if not d_obj:
+                    d_obj = Department(name=dept_val, code=None, description=None)
+                    db.add(d_obj)
+                    db.flush()
+                    dept_name_map[d_key] = d_obj
+                    counts["departments"] += 1
+
+                # Handle Faculty record (create or update, deduplicate)
+                fac_obj = None
+                if fac_name_val:
+                    fac_key = fac_name_val.lower()
+                    fac_obj = faculty_name_map.get(fac_key)
+                    if not fac_obj:
+                        fac_obj = db.query(Faculty).filter(Faculty.name.ilike(fac_name_val)).first()
+
+                    if not fac_obj:
+                        fac_obj = Faculty(
+                            name=fac_name_val,
+                            initials=fac_initials_val,
+                            department=d_obj.name,
+                            department_id=d_obj.id,
+                            is_full_time=True,
+                            max_hours_per_week=20,
+                        )
+                        db.add(fac_obj)
+                        db.flush()
+                        faculty_name_map[fac_key] = fac_obj
+                        counts["faculty"] += 1
+                    else:
+                        # Update missing initials or department if needed
+                        if fac_initials_val and not fac_obj.initials:
+                            fac_obj.initials = fac_initials_val
+                        if d_obj.id and not fac_obj.department_id:
+                            fac_obj.department_id = d_obj.id
+                            fac_obj.department = d_obj.name
+                        db.flush()
+                        faculty_name_map[fac_key] = fac_obj
+
+                if not code_val or not name_val:
+                    warnings.append(f"BE Subjects row {idx}: Missing Subject Code or Name for Department '{dept_val}', Semester '{sem_val}'.")
+                    continue
+
+                # Uniqueness per (department_id, semester, code)
+                c_obj = db.query(Course).filter(
+                    Course.department_id == d_obj.id,
+                    Course.semester == sem_val,
+                    Course.code == code_val
+                ).first()
+
+                if not c_obj:
+                    c_obj = Course(
+                        code=code_val,
+                        name=name_val,
+                        department_id=d_obj.id,
+                        semester=sem_val,
+                        faculty_id=fac_obj.id if fac_obj else None,
+                        credits=3,
+                        default_periods_per_week=3,
+                        min_periods=1,
+                        is_lab=False,
+                    )
+                    db.add(c_obj)
+                    db.flush()
+                    counts["courses"] += 1
+                else:
+                    c_obj.name = name_val
+                    if fac_obj:
+                        c_obj.faculty_id = fac_obj.id
+                    db.flush()
+                    counts["courses"] += 1
+
+                # Ensure Section exists for course
+                sec_obj = db.query(Section).filter(Section.course_id == c_obj.id).first()
+                if not sec_obj:
+                    sec_obj = Section(
+                        course_id=c_obj.id,
+                        section_number="A",
+                        capacity=60,
+                        current_enrollment=30,
+                        periods_per_week=c_obj.default_periods_per_week,
+                        requires_lab=c_obj.is_lab,
+                    )
+                    db.add(sec_obj)
+                    db.flush()
+                    counts["sections"] += 1
+
+        # 2. DEPARTMENTS SHEET (if dedicated sheet exists)
         dept_records = get_sheet_records("Departments")
         for idx, row in enumerate(dept_records, start=2):
             d_name = str(row.get("name") or "").strip()
@@ -187,23 +303,19 @@ def import_excel_data(
             d_code = str(row.get("code") or "").strip() or None
             d_desc = str(row.get("description") or "").strip() or None
 
-            d_obj = dept_name_map.get(d_name.lower()) or (dept_code_map.get(d_code.lower()) if d_code else None)
+            d_obj = dept_name_map.get(d_name.lower())
             if not d_obj:
                 d_obj = Department(name=d_name, code=d_code, description=d_desc)
                 db.add(d_obj)
                 db.flush()
                 counts["departments"] += 1
+                dept_name_map[d_name.lower()] = d_obj
             else:
                 if d_code:
                     d_obj.code = d_code
                 if d_desc:
                     d_obj.description = d_desc
                 db.flush()
-                counts["departments"] += 1
-
-            dept_name_map[d_name.lower()] = d_obj
-            if d_code:
-                dept_code_map[d_code.lower()] = d_obj
 
         # Helper function to find or auto-create a department
         def get_or_create_dept(dept_identifier: Optional[str]) -> Optional[Department]:
@@ -215,19 +327,15 @@ def import_excel_data(
             key = val.lower()
             if key in dept_name_map:
                 return dept_name_map[key]
-            if key in dept_code_map:
-                return dept_code_map[key]
             # Auto-create if new
-            new_dept = Department(name=val, code=val[:4].upper())
+            new_dept = Department(name=val, code=None)
             db.add(new_dept)
             db.flush()
             counts["departments"] += 1
             dept_name_map[key] = new_dept
-            if new_dept.code:
-                dept_code_map[new_dept.code.lower()] = new_dept
             return new_dept
 
-        # 2. FACULTY
+        # 3. FACULTY SHEET (if present)
         faculty_email_map: Dict[str, Faculty] = {}
         faculty_name_map: Dict[str, Faculty] = {}
         for f in db.query(Faculty).all():
@@ -273,72 +381,63 @@ def import_excel_data(
             faculty_email_map[email] = f_obj
             faculty_name_map[name.lower()] = f_obj
 
-        # 3. COURSES
-        course_code_map: Dict[str, Course] = {}
-        for c in db.query(Course).all():
-            if c.code:
-                course_code_map[c.code.strip().upper()] = c
+        # 4. COURSES SHEET (if dedicated Courses sheet exists and BE Subjects was not used)
+        if not be_subject_records:
+            course_records = get_sheet_records("Courses")
+            for idx, row in enumerate(course_records, start=2):
+                code = str(row.get("code") or "").strip().upper()
+                name = str(row.get("name") or "").strip()
+                if not code or not name:
+                    warnings.append(f"Courses sheet row {idx}: Missing course code or name.")
+                    continue
 
-        course_records = get_sheet_records("Courses")
-        for idx, row in enumerate(course_records, start=2):
-            code = str(row.get("code") or "").strip().upper()
-            name = str(row.get("name") or "").strip()
-            if not code or not name:
-                warnings.append(f"Courses sheet row {idx}: Missing course code or name.")
-                continue
+                credits = parse_int(row.get("credits"), default=3)
+                is_lab = parse_bool(row.get("is_lab"), default=False)
+                default_periods = parse_int(row.get("default_periods_per_week"), default=2 if is_lab else 3)
+                min_periods = parse_int(row.get("min_periods"), default=1)
 
-            credits = parse_int(row.get("credits"), default=3)
-            is_lab = parse_bool(row.get("is_lab"), default=False)
-            default_periods = parse_int(row.get("default_periods_per_week"), default=2 if is_lab else 3)
-            min_periods = parse_int(row.get("min_periods"), default=1)
+                raw_c_dept = str(row.get("department") or row.get("department_name") or row.get("department_code") or "").strip() or None
+                dept_obj = get_or_create_dept(raw_c_dept)
+                semester_val = str(row.get("semester") or "").strip() or None
 
-            # Department resolution
-            raw_c_dept = str(row.get("department") or row.get("department_name") or row.get("department_code") or "").strip() or None
-            dept_obj = get_or_create_dept(raw_c_dept)
+                faculty_ref = str(row.get("faculty_email") or row.get("faculty") or row.get("faculty_name") or "").strip().lower()
+                fac_obj = faculty_email_map.get(faculty_ref) or faculty_name_map.get(faculty_ref)
+                faculty_id = fac_obj.id if fac_obj else None
 
-            # Semester resolution (e.g. 5, 'Semester 5')
-            semester_val = parse_semester(row.get("semester"))
+                c_obj = db.query(Course).filter(
+                    Course.department_id == (dept_obj.id if dept_obj else None),
+                    Course.semester == semester_val,
+                    Course.code == code
+                ).first()
 
-            # Faculty resolution
-            faculty_ref = str(row.get("faculty_email") or row.get("faculty") or row.get("faculty_name") or "").strip().lower()
-            fac_obj = faculty_email_map.get(faculty_ref) or faculty_name_map.get(faculty_ref)
-            faculty_id = fac_obj.id if fac_obj else None
+                if not c_obj:
+                    c_obj = Course(
+                        code=code,
+                        name=name,
+                        credits=credits,
+                        faculty_id=faculty_id,
+                        department_id=dept_obj.id if dept_obj else None,
+                        semester=semester_val,
+                        is_lab=is_lab,
+                        default_periods_per_week=default_periods,
+                        min_periods=min_periods,
+                    )
+                    db.add(c_obj)
+                    db.flush()
+                    counts["courses"] += 1
+                else:
+                    c_obj.name = name
+                    c_obj.credits = credits
+                    c_obj.faculty_id = faculty_id
+                    c_obj.department_id = dept_obj.id if dept_obj else c_obj.department_id
+                    c_obj.semester = semester_val if semester_val is not None else c_obj.semester
+                    c_obj.is_lab = is_lab
+                    c_obj.default_periods_per_week = default_periods
+                    c_obj.min_periods = min_periods
+                    db.flush()
+                    counts["courses"] += 1
 
-            # Infer department from faculty if not on course
-            if not dept_obj and fac_obj and fac_obj.department_id:
-                dept_obj = db.query(Department).filter(Department.id == fac_obj.department_id).first()
-
-            c_obj = course_code_map.get(code)
-            if not c_obj:
-                c_obj = Course(
-                    code=code,
-                    name=name,
-                    credits=credits,
-                    faculty_id=faculty_id,
-                    department_id=dept_obj.id if dept_obj else None,
-                    semester=semester_val,
-                    is_lab=is_lab,
-                    default_periods_per_week=default_periods,
-                    min_periods=min_periods,
-                )
-                db.add(c_obj)
-                db.flush()
-                counts["courses"] += 1
-            else:
-                c_obj.name = name
-                c_obj.credits = credits
-                c_obj.faculty_id = faculty_id
-                c_obj.department_id = dept_obj.id if dept_obj else c_obj.department_id
-                c_obj.semester = semester_val if semester_val is not None else c_obj.semester
-                c_obj.is_lab = is_lab
-                c_obj.default_periods_per_week = default_periods
-                c_obj.min_periods = min_periods
-                db.flush()
-                counts["courses"] += 1
-
-            course_code_map[code] = c_obj
-
-        # 4. SECTIONS
+        # 5. SECTIONS SHEET (if present)
         section_records = get_sheet_records("Sections")
         for idx, row in enumerate(section_records, start=2):
             c_code = str(row.get("course_code") or row.get("course") or "").strip().upper()
@@ -347,7 +446,7 @@ def import_excel_data(
                 warnings.append(f"Sections sheet row {idx}: Missing course_code or section_number.")
                 continue
 
-            c_obj = course_code_map.get(c_code)
+            c_obj = db.query(Course).filter(Course.code == c_code).first()
             if not c_obj:
                 warnings.append(f"Sections sheet row {idx}: Course '{c_code}' not found.")
                 continue
@@ -382,7 +481,7 @@ def import_excel_data(
                 db.flush()
                 counts["sections"] += 1
 
-        # 5. ROOMS
+        # 6. ROOMS SHEET (if present)
         room_number_map: Dict[str, Room] = {}
         for r in db.query(Room).all():
             room_number_map[r.room_number.strip().lower()] = r
@@ -429,7 +528,7 @@ def import_excel_data(
 
             room_number_map[room_num.lower()] = r_obj
 
-        # 6. TIME SLOTS
+        # 7. TIME SLOTS SHEET (if present)
         slot_records = get_sheet_records("TimeSlots")
         for idx, row in enumerate(slot_records, start=2):
             try:
@@ -494,6 +593,71 @@ def import_excel_data(
                 c_obj.priority = priority
                 db.flush()
                 counts["constraints"] += 1
+
+        # Ensure default rooms exist if none in database
+        if db.query(Room).count() == 0:
+            default_rooms = [
+                Room(room_number="Room 101", building="Main Building", capacity=60, room_type="lecture", has_projector=True, has_computer=False),
+                Room(room_number="Room 102", building="Main Building", capacity=60, room_type="lecture", has_projector=True, has_computer=False),
+                Room(room_number="Room 103", building="Main Building", capacity=60, room_type="lecture", has_projector=True, has_computer=False),
+                Room(room_number="Room 104", building="Main Building", capacity=60, room_type="lecture", has_projector=True, has_computer=False),
+                Room(room_number="Room 105", building="Main Building", capacity=60, room_type="lecture", has_projector=True, has_computer=False),
+                Room(room_number="Lab 201", building="Science Block", capacity=40, room_type="lab", has_projector=True, has_computer=True),
+                Room(room_number="Lab 202", building="Science Block", capacity=40, room_type="lab", has_projector=True, has_computer=True),
+                Room(room_number="Lab 203", building="Science Block", capacity=40, room_type="lab", has_projector=True, has_computer=True),
+            ]
+            db.add_all(default_rooms)
+            db.flush()
+            counts["rooms"] += len(default_rooms)
+
+        # Ensure default time slots exist if none in database
+        if db.query(TimeSlot).count() == 0:
+            slots = []
+            slot_idx = 1
+            slot_definitions = [
+                (8, 9, False, "Period 1"),
+                (9, 10, False, "Period 2"),
+                (10, 11, False, "Period 3"),
+                (11, 12, False, "Period 4"),
+                (12, 13, True, "Lunch Break"),
+                (13, 14, False, "Period 5"),
+                (14, 15, False, "Period 6"),
+                (15, 16, False, "Period 7"),
+                (16, 17, False, "Period 8"),
+            ]
+            for day in range(5):  # Mon-Fri (0-4)
+                for start_h, end_h, is_brk, label_prefix in slot_definitions:
+                    lbl = label_prefix if is_brk else f"Slot {slot_idx}"
+                    if not is_brk:
+                        slot_idx += 1
+                    slots.append(TimeSlot(
+                        day_of_week=day,
+                        start_time=time(start_h, 0),
+                        end_time=time(end_h, 0),
+                        is_break=is_brk,
+                        label=lbl,
+                    ))
+            db.add_all(slots)
+            db.flush()
+            counts["time_slots"] += len(slots)
+
+        # Ensure default constraints exist if none in database
+        if db.query(Constraint).count() == 0:
+            constraints = [
+                Constraint(name="No Faculty Overlap", description="A faculty member cannot teach two courses at the same time", constraint_type="hard", is_required=True, priority=10),
+                Constraint(name="No Section Overlap", description="A section cannot have two classes at the same time", constraint_type="hard", is_required=True, priority=9),
+                Constraint(name="No Room Overlap", description="A room cannot host two classes at the same time", constraint_type="hard", is_required=True, priority=8),
+                Constraint(name="Room Capacity", description="Room capacity must meet section demand", constraint_type="hard", is_required=True, priority=7),
+                Constraint(name="Faculty Availability", description="Faculty must be available in assigned slots", constraint_type="hard", is_required=True, priority=6),
+                Constraint(name="Lab Requirements", description="Lab sessions must use a lab room", constraint_type="hard", is_required=True, priority=5),
+                Constraint(name="Break Periods", description="No classes during break slots", constraint_type="hard", is_required=True, priority=4),
+                Constraint(name="Workload Balance", description="Faculty workload should be balanced", constraint_type="soft", is_required=False, priority=3),
+                Constraint(name="Faculty Gaps", description="Minimize idle gaps between classes", constraint_type="soft", is_required=False, priority=2),
+                Constraint(name="Student Gaps", description="Minimize gaps in student schedules", constraint_type="soft", is_required=False, priority=1),
+            ]
+            db.add_all(constraints)
+            db.flush()
+            counts["constraints"] += len(constraints)
 
         db.commit()
         return {

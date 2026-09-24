@@ -91,6 +91,7 @@ class DepartmentOut(DepartmentBase, TimestampMixin):
 # ---- Faculty ----
 class FacultyBase(BaseModel):
     name: str
+    initials: Optional[str] = None
     department: Optional[str] = None
     department_id: Optional[int] = None
     email: Optional[str] = None
@@ -102,6 +103,7 @@ class FacultyCreate(FacultyBase):
 
 class FacultyUpdate(BaseModel):
     name: Optional[str] = None
+    initials: Optional[str] = None
     department: Optional[str] = None
     department_id: Optional[int] = None
     email: Optional[str] = None
@@ -116,13 +118,13 @@ class FacultyOut(FacultyBase, TimestampMixin):
 
 # ---- Course ----
 class CourseBase(BaseModel):
-    code: str = Field(..., max_length=20)
+    code: str = Field(..., max_length=50)
     name: str
     description: Optional[str] = None
     credits: int = 3
     faculty_id: Optional[int] = None
     department_id: Optional[int] = None
-    semester: Optional[int] = None
+    semester: Optional[str] = None
     is_lab: bool = False
     default_periods_per_week: int = 3
     min_periods: int = 1
@@ -131,12 +133,13 @@ class CourseCreate(CourseBase):
     pass
 
 class CourseUpdate(BaseModel):
+    code: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
     credits: Optional[int] = None
     faculty_id: Optional[int] = None
     department_id: Optional[int] = None
-    semester: Optional[int] = None
+    semester: Optional[str] = None
     is_lab: Optional[bool] = None
     default_periods_per_week: Optional[int] = None
     min_periods: Optional[int] = None
@@ -349,8 +352,8 @@ class TimetableEntryOut(TimetableEntryBase, TimestampMixin):
 
 # ---- Semester ----
 class SemesterOut(BaseModel):
-    semester: int
-    label: str
+    semester: str
+    label: Optional[str] = None
 
 # ---- Generation Request ----
 class GenerateTimetableRequest(BaseModel):

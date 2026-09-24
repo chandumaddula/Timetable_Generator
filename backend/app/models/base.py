@@ -62,6 +62,7 @@ class Faculty(Base, TimestampMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
+    initials = Column(String(20), nullable=True)
     department = Column(String(100))  # String name preserved for backwards compatibility
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     email = Column(String(255))
@@ -78,13 +79,13 @@ class Course(Base, TimestampMixin):
     __tablename__ = "courses"
 
     id = Column(Integer, primary_key=True, index=True)
-    code = Column(String(20), unique=True, index=True, nullable=False)
+    code = Column(String(50), index=True, nullable=False)
     name = Column(String(255), nullable=False)
-    description = Column(Text)
+    description = Column(Text, nullable=True)
     credits = Column(Integer, default=3)
-    faculty_id = Column(Integer, ForeignKey("faculty.id"))
+    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
-    semester = Column(Integer, nullable=True)  # e.g., 1, 2, 3, 4, 5, 6, 7, 8
+    semester = Column(String(50), nullable=True)  # e.g., 'Semester 1 & 2', 'Semester 5'
     is_lab = Column(Boolean, default=False)
     default_periods_per_week = Column(Integer, default=3)
     min_periods = Column(Integer, default=1)

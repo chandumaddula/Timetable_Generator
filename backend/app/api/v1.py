@@ -47,17 +47,7 @@ async def health():
 @router.get("/departments", response_model=List[DepartmentOut])
 def list_departments(db: Session = Depends(get_db)):
     """Get all departments from database."""
-    depts = db.query(Department).order_by(Department.name).all()
-    if not depts:
-        # Fallback: create from faculty/courses if empty
-        names = db.query(distinct(Faculty.department)).filter(Faculty.department.isnot(None)).all()
-        for (n,) in names:
-            if n:
-                d = Department(name=n, code=n[:4].upper())
-                db.add(d)
-        db.commit()
-        depts = db.query(Department).order_by(Department.name).all()
-    return depts
+    return db.query(Department).order_by(Department.name).all()
 
 @router.get("/departments/{dept_id}", response_model=DepartmentOut)
 def get_department(dept_id: int, db: Session = Depends(get_db)):
@@ -104,7 +94,7 @@ def list_courses(
     semester: Optional[str] = None,
     is_lab: Optional[bool] = None,
     skip: int = 0,
-    limit: int = 200,
+    limit: int = 500,
     db: Session = Depends(get_db)
 ):
     """List courses with authoritative backend filtering by department_id and semester."""
@@ -119,10 +109,13 @@ def list_courses(
             )
         )
     if semester:
-        match = re.search(r'\d+', semester)
-        if match:
-            sem_num = int(match.group())
-            q = q.filter(Course.semester == sem_num)
+        s_val = semester.strip()
+        q = q.filter(
+            or_(
+                Course.semester == s_val,
+                Course.semester.ilike(f"%{s_val}%")
+            )
+        )
     if is_lab is not None:
         q = q.filter(Course.is_lab == is_lab)
     return q.offset(skip).limit(limit).all()
@@ -175,7 +168,7 @@ def list_faculty(
     limit: int = 200,
     db: Session = Depends(get_db)
 ):
-    """List faculty members with optional filtering by department or assigned courses."""
+    """List faculty members with optional filtering by department, semester, or assigned courses."""
     q = db.query(Faculty)
     if course_ids:
         try:
@@ -188,16 +181,46 @@ def list_faculty(
                 q = q.filter(Faculty.id.in_(assigned_faculty_ids))
         except Exception:
             pass
-    elif department_id:
-        q = q.filter(Faculty.department_id == department_id)
-    elif department:
-        q = q.filter(
-            or_(
+    elif department_id or department:
+        dept_cond = None
+        if department_id:
+            dept_cond = (Course.department_id == department_id)
+            fac_dept_cond = or_(
+                Faculty.department_id == department_id,
+                Faculty.department_rel.has(Department.id == department_id)
+            )
+        else:
+            dept_cond = Course.department.has(
+                or_(
+                    Department.name.ilike(f"%{department}%"),
+                    Department.code.ilike(f"%{department}%")
+                )
+            )
+            fac_dept_cond = or_(
                 Faculty.department.ilike(f"%{department}%"),
                 Faculty.department_rel.has(Department.name.ilike(f"%{department}%"))
             )
-        )
-    return q.offset(skip).limit(limit).all()
+
+        if semester:
+            s_val = semester.strip()
+            assigned_faculty_ids = db.query(Course.faculty_id).filter(
+                dept_cond,
+                or_(
+                    Course.semester == s_val,
+                    Course.semester.ilike(f"%{s_val}%")
+                ),
+                Course.faculty_id.isnot(None)
+            ).distinct()
+            q = q.filter(
+                or_(
+                    Faculty.id.in_(assigned_faculty_ids),
+                    fac_dept_cond
+                )
+            )
+        else:
+            q = q.filter(fac_dept_cond)
+
+    return q.order_by(Faculty.name).offset(skip).limit(limit).all()
 
 @router.get("/faculty/{faculty_id}", response_model=FacultyOut)
 def get_faculty(faculty_id: int, db: Session = Depends(get_db)):
@@ -463,13 +486,14 @@ def list_semesters(
             )
         )
 
-    sem_results = [s[0] for s in q.all() if s[0] is not None]
-    sem_results.sort()
-
-    if not sem_results and not department_id and not department:
-        sem_results = [1, 2, 3, 4, 5, 6, 7, 8]
-
-    return [{"semester": s, "label": f"Semester {s}"} for s in sem_results]
+    sem_results = [s[0] for s in q.all() if s[0] is not None and str(s[0]).strip()]
+    
+    def sem_sort_key(s: str):
+        nums = [int(n) for n in re.findall(r'\d+', str(s))]
+        return (nums[0] if nums else 999, str(s))
+    
+    sem_results.sort(key=sem_sort_key)
+    return [{"semester": str(s), "label": str(s)} for s in sem_results]
 
 
 @router.post("/timetable/generate")
@@ -506,15 +530,13 @@ async def generate_timetable(data: GenerateTimetableRequest, db: Session = Depen
 
     # Apply semester filter
     if data.semester is not None:
-        sem_num = None
-        if isinstance(data.semester, int):
-            sem_num = data.semester
-        else:
-            match = re.search(r'\d+', str(data.semester))
-            if match:
-                sem_num = int(match.group())
-        if sem_num:
-            courses_q = courses_q.filter(Course.semester == sem_num)
+        s_val = str(data.semester).strip()
+        courses_q = courses_q.filter(
+            or_(
+                Course.semester == s_val,
+                Course.semester.ilike(f"%{s_val}%")
+            )
+        )
 
     # Apply course filter
     if data.courses:

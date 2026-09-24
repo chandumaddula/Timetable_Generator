@@ -55,7 +55,7 @@ interface DepartmentItem {
 }
 
 interface SemesterData {
-  semester: number;
+  semester: string;
   label: string;
 }
 
@@ -65,7 +65,7 @@ interface CourseItem {
   name: string;
   is_lab: boolean;
   department_id?: number;
-  semester?: number;
+  semester?: string;
   faculty_id?: number;
   faculty?: { id: number; name: string; department?: string };
 }
@@ -78,6 +78,7 @@ interface SectionItem {
 interface FacultyItem {
   id: number;
   name: string;
+  initials?: string;
   department?: string;
   department_id?: number;
   is_full_time: boolean;
@@ -119,6 +120,247 @@ interface GenResult {
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAYS_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// --- Time helpers ---
+function formatTo12Hour(time24: string): string {
+  if (!time24) return "";
+  const parts = time24.split(":");
+  if (parts.length < 2) return time24;
+  let h = parseInt(parts[0], 10);
+  const m = parts[1].padStart(2, "0");
+  const period = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h.toString().padStart(2, "0")}:${m} ${period}`;
+}
+
+function parseTo12HourParts(time24: string, defaultPeriod: "AM" | "PM" = "AM") {
+  if (!time24) return { hour: defaultPeriod === "AM" ? 8 : 5, minute: 0, period: defaultPeriod };
+  const parts = time24.split(":");
+  let h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1] || "0", 10);
+  const period = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return { hour: h, minute: m, period: period as "AM" | "PM" };
+}
+
+function to24Hour(hour: number, minute: number, period: "AM" | "PM"): string {
+  let h = hour % 12;
+  if (period === "PM") h += 12;
+  return `${h.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
+}
+
+interface TimePicker12HourProps {
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  defaultPeriod?: "AM" | "PM";
+  presets?: string[];
+}
+
+function TimePicker12Hour({
+  label,
+  value,
+  onChange,
+  placeholder = "Select time",
+  defaultPeriod = "AM",
+  presets = [],
+}: TimePicker12HourProps) {
+  const [open, setOpen] = useState(false);
+  const parsed = useMemo(() => parseTo12HourParts(value, defaultPeriod), [value, defaultPeriod]);
+  const [selectedHour, setSelectedHour] = useState<number>(parsed.hour);
+  const [selectedMinute, setSelectedMinute] = useState<number>(parsed.minute);
+  const [selectedPeriod, setSelectedPeriod] = useState<"AM" | "PM">(parsed.period);
+
+  useEffect(() => {
+    if (value) {
+      const p = parseTo12HourParts(value, defaultPeriod);
+      setSelectedHour(p.hour);
+      setSelectedMinute(p.minute);
+      setSelectedPeriod(p.period);
+    }
+  }, [value, defaultPeriod]);
+
+  const updateTime = (h: number, m: number, p: "AM" | "PM") => {
+    setSelectedHour(h);
+    setSelectedMinute(m);
+    setSelectedPeriod(p);
+    onChange(to24Hour(h, m, p));
+  };
+
+  const handleHourChange = (h: number) => {
+    updateTime(h, selectedMinute, selectedPeriod);
+  };
+
+  const handleMinuteChange = (m: number) => {
+    updateTime(selectedHour, m, selectedPeriod);
+  };
+
+  const handlePeriodChange = (p: "AM" | "PM") => {
+    updateTime(selectedHour, selectedMinute, p);
+  };
+
+  const formattedDisplay = value ? formatTo12Hour(value) : "";
+
+  return (
+    <div className="relative">
+      <span className="text-xs font-semibold text-ink-600 block mb-1">{label}</span>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="input-field text-left flex items-center justify-between group hover:border-brand-500 focus:border-brand-500 transition shadow-sm"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <Clock className="h-4 w-4 text-brand-600 shrink-0" />
+          <span className={formattedDisplay ? "text-ink-900 font-bold tracking-wide text-sm truncate" : "text-ink-400 text-sm truncate"}>
+            {formattedDisplay || placeholder}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {value && (
+            <span
+              className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
+                parsed.period === "AM" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
+              }`}
+            >
+              {parsed.period}
+            </span>
+          )}
+          {open ? <ChevronUp className="h-4 w-4 shrink-0 text-ink-500" /> : <ChevronDown className="h-4 w-4 shrink-0 text-ink-400" />}
+        </div>
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute z-30 mt-1.5 w-72 bg-white border border-ink-200 rounded-2xl shadow-2xl p-4 space-y-4 animate-in fade-in zoom-in-95 duration-100 left-0">
+            <div className="flex items-center justify-between pb-2 border-b border-ink-100">
+              <span className="text-xs font-bold text-ink-700 uppercase tracking-wider">{label}</span>
+              <span className="text-sm font-extrabold text-brand-700 bg-brand-50 px-2.5 py-1 rounded-lg border border-brand-200">
+                {formatTo12Hour(to24Hour(selectedHour, selectedMinute, selectedPeriod))}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <label className="text-[11px] font-bold text-ink-500 uppercase block mb-1">Hour</label>
+                <select
+                  value={selectedHour}
+                  onChange={(e) => handleHourChange(Number(e.target.value))}
+                  className="w-full text-center font-bold text-sm bg-ink-50 hover:bg-ink-100 border border-ink-200 rounded-xl py-2 px-1 focus:ring-2 focus:ring-brand-500 outline-none transition cursor-pointer"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+                    <option key={h} value={h}>
+                      {h.toString().padStart(2, "0")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-ink-500 uppercase block mb-1">Minute</label>
+                <select
+                  value={selectedMinute}
+                  onChange={(e) => handleMinuteChange(Number(e.target.value))}
+                  className="w-full text-center font-bold text-sm bg-ink-50 hover:bg-ink-100 border border-ink-200 rounded-xl py-2 px-1 focus:ring-2 focus:ring-brand-500 outline-none transition cursor-pointer"
+                >
+                  {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => (
+                    <option key={m} value={m}>
+                      {m.toString().padStart(2, "0")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-ink-500 uppercase block mb-1">AM / PM</label>
+                <div className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handlePeriodChange("AM")}
+                    className={`text-xs font-extrabold py-1 rounded-lg transition-all border ${
+                      selectedPeriod === "AM"
+                        ? "bg-brand-600 text-white border-brand-600 shadow-sm"
+                        : "bg-ink-50 text-ink-600 border-ink-200 hover:bg-ink-100"
+                    }`}
+                  >
+                    AM
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePeriodChange("PM")}
+                    className={`text-xs font-extrabold py-1 rounded-lg transition-all border ${
+                      selectedPeriod === "PM"
+                        ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                        : "bg-ink-50 text-ink-600 border-ink-200 hover:bg-ink-100"
+                    }`}
+                  >
+                    PM
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {presets.length > 0 && (
+              <div className="pt-2 border-t border-ink-100">
+                <span className="text-[10px] font-bold text-ink-400 uppercase tracking-wide block mb-1.5">
+                  Quick Select
+                </span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {presets.map((pTime) => {
+                    const label12 = formatTo12Hour(pTime);
+                    const isSelected = value === pTime;
+                    return (
+                      <button
+                        key={pTime}
+                        type="button"
+                        onClick={() => {
+                          const p = parseTo12HourParts(pTime, defaultPeriod);
+                          updateTime(p.hour, p.minute, p.period);
+                        }}
+                        className={`text-[11px] font-semibold py-1 px-1.5 rounded-lg border text-center transition ${
+                          isSelected
+                            ? "bg-brand-50 border-brand-500 text-brand-700 font-bold shadow-xs"
+                            : "bg-white border-ink-200 text-ink-700 hover:bg-ink-50"
+                        }`}
+                      >
+                        {label12}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2 border-t border-ink-100">
+              {value ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange("");
+                    setOpen(false);
+                  }}
+                  className="text-xs text-red-600 hover:text-red-700 font-medium"
+                >
+                  Clear
+                </button>
+              ) : <div />}
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="btn-primary text-xs py-1.5 px-3 rounded-lg"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 // --- Multi-Select Component ---
 function MultiSelect<T extends { id: number; name: string }>({
@@ -208,7 +450,7 @@ export default function GeneratePage() {
 
   // Cascading form state
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | "">("");
-  const [selectedSemester, setSelectedSemester] = useState<number | "">("");
+  const [selectedSemester, setSelectedSemester] = useState<string>("");
   const [selectedCourses, setSelectedCourses] = useState<number[]>([]);
   const [selectedFaculty, setSelectedFaculty] = useState<number[]>([]);
   const [timeStart, setTimeStart] = useState("");
@@ -244,17 +486,18 @@ export default function GeneratePage() {
       getCourses({
         department_id: Number(selectedDepartmentId),
         semester: selectedSemester,
-        limit: 200,
+        limit: 500,
       }).then((r) => r.data),
     enabled: Boolean(selectedDepartmentId && selectedSemester),
   });
 
-  // 4. Faculty Query: Dependent on Department (and optionally filtered by selected courses)
+  // 4. Faculty Query: Dependent on Department, Semester, and selected Courses
   const { data: facultyData, isLoading: isLoadingFaculty } = useQuery({
-    queryKey: ["faculty", selectedDepartmentId, selectedCourses],
+    queryKey: ["faculty", selectedDepartmentId, selectedSemester, selectedCourses],
     queryFn: () =>
       getFaculty({
         department_id: selectedDepartmentId ? Number(selectedDepartmentId) : undefined,
+        semester: selectedSemester || undefined,
         course_ids: selectedCourses.length ? selectedCourses.join(",") : undefined,
         limit: 200,
       }).then((r) => r.data),
@@ -301,10 +544,27 @@ export default function GeneratePage() {
 
   // Reset cascades on Semester change
   const handleSemesterChange = (semVal: string) => {
-    const newSem = semVal ? Number(semVal) : "";
-    setSelectedSemester(newSem);
+    setSelectedSemester(semVal);
     setSelectedCourses([]);
     setSelectedFaculty([]);
+  };
+
+  // Reset/filter faculty when selected courses change
+  const handleCoursesChange = (newSelectedCourseIds: number[]) => {
+    setSelectedCourses(newSelectedCourseIds);
+    if (newSelectedCourseIds.length === 0) {
+      setSelectedFaculty([]);
+    } else {
+      // Keep only selected faculty who teach the newly selected courses
+      const validFacultyIds = new Set<number>();
+      newSelectedCourseIds.forEach((cId) => {
+        const courseObj = courses.find((c) => c.id === cId);
+        if (courseObj?.faculty_id) {
+          validFacultyIds.add(courseObj.faculty_id);
+        }
+      });
+      setSelectedFaculty((prev) => prev.filter((fId) => validFacultyIds.has(fId)));
+    }
   };
 
   // Generate mutation
@@ -407,7 +667,7 @@ export default function GeneratePage() {
       id: "semester",
       label: "Semester",
       ready: Boolean(selectedSemester !== ""),
-      value: selectedSemester ? `Semester ${selectedSemester}` : "Not selected",
+      value: selectedSemester || "Not selected",
     },
     {
       id: "courses",
@@ -419,7 +679,9 @@ export default function GeneratePage() {
       id: "time",
       label: "Subject Period Time",
       ready: Boolean(timeStart && timeEnd),
-      value: timeStart && timeEnd ? `${timeStart} – ${timeEnd}` : (timeStart ? `From ${timeStart}` : (timeEnd ? `Until ${timeEnd}` : "Not configured")),
+      value: timeStart && timeEnd
+        ? `${formatTo12Hour(timeStart)} – ${formatTo12Hour(timeEnd)}`
+        : (timeStart ? `From ${formatTo12Hour(timeStart)}` : (timeEnd ? `Until ${formatTo12Hour(timeEnd)}` : "Not configured")),
     },
     {
       id: "faculty",
@@ -594,7 +856,7 @@ export default function GeneratePage() {
                       <option value="">— Select Department —</option>
                       {departments.map((d) => (
                         <option key={d.id} value={d.id}>
-                          {d.name} {d.code ? `(${d.code})` : ""}
+                          {d.name}
                         </option>
                       ))}
                     </>
@@ -622,7 +884,7 @@ export default function GeneratePage() {
                       <option value="">— Select Semester —</option>
                       {semesters.map((s) => (
                         <option key={s.semester} value={s.semester}>
-                          {s.label || `Semester ${s.semester}`}
+                          {s.label || s.semester}
                         </option>
                       ))}
                     </>
@@ -639,7 +901,7 @@ export default function GeneratePage() {
                     name: `${c.code} — ${c.name}${c.is_lab ? " (Lab)" : ""}`,
                   }))}
                   selected={selectedCourses}
-                  onChange={setSelectedCourses}
+                  onChange={handleCoursesChange}
                   disabled={!selectedDepartmentId || !selectedSemester || isLoadingCourses}
                   placeholder={
                     !selectedDepartmentId || !selectedSemester
@@ -656,21 +918,23 @@ export default function GeneratePage() {
 
               {/* 4. SUBJECT PERIOD TIME */}
               <div>
-                <label className="label">4. Subject Period Time</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="time"
-                    className="input-field"
+                <label className="label">4. Subject Period Time (AM / PM)</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <TimePicker12Hour
+                    label="Start Time"
                     value={timeStart}
-                    onChange={(e) => setTimeStart(e.target.value)}
-                    placeholder="Start"
+                    onChange={setTimeStart}
+                    placeholder="Select Start (e.g. 08:00 AM)"
+                    defaultPeriod="AM"
+                    presets={["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30"]}
                   />
-                  <input
-                    type="time"
-                    className="input-field"
+                  <TimePicker12Hour
+                    label="End Time"
                     value={timeEnd}
-                    onChange={(e) => setTimeEnd(e.target.value)}
-                    placeholder="End"
+                    onChange={setTimeEnd}
+                    placeholder="Select End (e.g. 05:00 PM)"
+                    defaultPeriod="PM"
+                    presets={["14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30"]}
                   />
                 </div>
               </div>
@@ -681,7 +945,7 @@ export default function GeneratePage() {
                   label="5. Faculty"
                   items={faculties.map((f) => ({
                     id: f.id,
-                    name: `${f.name} (${f.department || currentDepartmentName || "—"})`,
+                    name: `${f.name}${f.initials ? ` (${f.initials})` : ""}${f.department ? ` — ${f.department}` : (currentDepartmentName ? ` — ${currentDepartmentName}` : "")}`,
                   }))}
                   selected={selectedFaculty}
                   onChange={setSelectedFaculty}
@@ -695,7 +959,7 @@ export default function GeneratePage() {
                       ? "No faculty members found"
                       : "Select faculty members..."
                   }
-                  emptyText="No faculty available for this department"
+                  emptyText="No faculty members found"
                 />
               </div>
 
@@ -956,7 +1220,7 @@ export default function GeneratePage() {
                   rooms={previewTimetableData.rooms}
                   sections={previewTimetableData.sections}
                   title={`DEPARTMENT OF ${currentDepartmentName ? currentDepartmentName.toUpperCase() : "ACADEMICS"}`}
-                  subtitle={`SEMESTER ${selectedSemester} • PRE-GENERATION PREVIEW`}
+                  subtitle={`${selectedSemester ? selectedSemester.toUpperCase() : ""} • PRE-GENERATION PREVIEW`}
                   showExportButtons={false}
                 />
               </div>
