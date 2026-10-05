@@ -1,0 +1,16 @@
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.coverage
+htmlcov
+.env
+.env.local
+timetable.db
+*.sqlite
+*.sqlite3
+.git
+.gitignore
+.vscode
+.idea
+node_modules

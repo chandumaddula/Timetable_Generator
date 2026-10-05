@@ -26,9 +26,10 @@ def create_app() -> FastAPI:
     )
 
     # CORS - configure origins appropriately in production
+    origins = ["*"] if settings.DEBUG else (settings.CORS_ORIGINS if isinstance(settings.CORS_ORIGINS, list) else [settings.CORS_ORIGINS])
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.DEBUG else ["http://localhost:3000"],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

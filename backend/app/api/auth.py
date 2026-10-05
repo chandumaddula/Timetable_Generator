@@ -1,4 +1,6 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.base import User, Role, UserRole
@@ -11,14 +13,21 @@ from app.config import settings
 from datetime import timedelta
 
 router = APIRouter(tags=["Authentication"])
+security = HTTPBearer(auto_error=False)
 
-def get_current_user(token: str = Depends(lambda: None), db: Session = Depends(get_db)):
-    # Simplified - in real app use OAuth2PasswordBearer
-    if not token:
+
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Retrieve the current authenticated user from JWT token."""
+    if not credentials or not credentials.credentials:
         return None
     try:
-        payload = decode_token(token)
+        payload = decode_token(credentials.credentials)
         username = payload.get("sub")
+        if not username:
+            return None
         user = db.query(User).filter(User.username == username).first()
         return user
     except Exception:

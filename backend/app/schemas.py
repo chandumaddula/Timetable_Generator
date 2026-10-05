@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, Field, EmailStr, field_validator, ConfigDict
 from typing import Optional, List, Union, Dict
 from datetime import time, datetime
 from enum import Enum
@@ -19,6 +19,7 @@ class EntryType(str, Enum):
 
 # ---- Base schemas ----
 class TimestampMixin(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -42,9 +43,6 @@ class UserOut(UserBase, TimestampMixin):
     is_active: bool
     is_superuser: bool
 
-    class Config:
-        from_attributes = True
-
 class RoleBase(BaseModel):
     name: str
     description: Optional[str] = None
@@ -54,8 +52,6 @@ class RoleCreate(RoleBase):
 
 class RoleOut(RoleBase, TimestampMixin):
     id: int
-    class Config:
-        from_attributes = True
 
 # ---- Auth Token ----
 class Token(BaseModel):
@@ -85,8 +81,6 @@ class DepartmentUpdate(BaseModel):
 
 class DepartmentOut(DepartmentBase, TimestampMixin):
     id: int
-    class Config:
-        from_attributes = True
 
 # ---- Faculty ----
 class FacultyBase(BaseModel):
@@ -113,8 +107,6 @@ class FacultyUpdate(BaseModel):
 class FacultyOut(FacultyBase, TimestampMixin):
     id: int
     department_rel: Optional[DepartmentOut] = None
-    class Config:
-        from_attributes = True
 
 # ---- Course ----
 class CourseBase(BaseModel):
@@ -148,8 +140,6 @@ class CourseOut(CourseBase, TimestampMixin):
     id: int
     department: Optional[DepartmentOut] = None
     faculty: Optional[FacultyOut] = None
-    class Config:
-        from_attributes = True
 
 # ---- Section ----
 class SectionBase(BaseModel):
@@ -173,8 +163,6 @@ class SectionUpdate(BaseModel):
 class SectionOut(SectionBase, TimestampMixin):
     id: int
     course: Optional[CourseOut] = None
-    class Config:
-        from_attributes = True
 
 # ---- Room ----
 class RoomBase(BaseModel):
@@ -197,8 +185,6 @@ class RoomUpdate(BaseModel):
 
 class RoomOut(RoomBase, TimestampMixin):
     id: int
-    class Config:
-        from_attributes = True
 
 # ---- TimeSlot ----
 class TimeSlotBase(BaseModel):
@@ -227,8 +213,6 @@ class TimeSlotUpdate(BaseModel):
 
 class TimeSlotOut(TimeSlotBase, TimestampMixin):
     id: int
-    class Config:
-        from_attributes = True
 
 # ---- Constraint ----
 class ConstraintBase(BaseModel):
@@ -252,8 +236,6 @@ class ConstraintUpdate(BaseModel):
 
 class ConstraintOut(ConstraintBase, TimestampMixin):
     id: int
-    class Config:
-        from_attributes = True
 
 # ---- Availability ----
 class FacultyAvailabilityBase(BaseModel):
@@ -266,8 +248,6 @@ class FacultyAvailabilityCreate(FacultyAvailabilityBase):
 
 class FacultyAvailabilityOut(FacultyAvailabilityBase, TimestampMixin):
     id: int
-    class Config:
-        from_attributes = True
 
 class RoomAvailabilityBase(BaseModel):
     room_id: int
@@ -279,8 +259,6 @@ class RoomAvailabilityCreate(RoomAvailabilityBase):
 
 class RoomAvailabilityOut(RoomAvailabilityBase, TimestampMixin):
     id: int
-    class Config:
-        from_attributes = True
 
 # ---- Preference ----
 class FacultyPreferenceBase(BaseModel):
@@ -294,8 +272,6 @@ class FacultyPreferenceCreate(FacultyPreferenceBase):
 
 class FacultyPreferenceOut(FacultyPreferenceBase, TimestampMixin):
     id: int
-    class Config:
-        from_attributes = True
 
 # ---- Timetable ----
 class TimetableBase(BaseModel):
@@ -315,8 +291,6 @@ class TimetableOut(TimetableBase, TimestampMixin):
     is_finalized: bool
     generated_at: Optional[datetime] = None
     metadata_json: Optional[str] = None
-    class Config:
-        from_attributes = True
 
 # ---- TimetableEntry ----
 class TimetableEntryBase(BaseModel):
@@ -347,8 +321,6 @@ class TimetableEntryOut(TimetableEntryBase, TimestampMixin):
     room: Optional[RoomOut] = None
     time_slot: Optional[TimeSlotOut] = None
     faculty: Optional[FacultyOut] = None
-    class Config:
-        from_attributes = True
 
 # ---- Semester ----
 class SemesterOut(BaseModel):
