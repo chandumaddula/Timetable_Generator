@@ -6,10 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies (including build tools and curl for health check)
+# Install lightweight runtime dependencies (curl for container health check)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
