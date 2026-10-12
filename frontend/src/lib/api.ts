@@ -218,3 +218,20 @@ export const getRoomTimetable = (roomId: number, timetableId?: number) =>
   api.get(`/api/v1/rooms/${roomId}/timetable`, {
     params: timetableId ? { timetable_id: timetableId } : undefined,
   });
+
+// --- Excel Import & Template ---
+export const importExcel = (file: File, clearExisting: boolean = true) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return api.post(`/api/v1/import/excel?clear_existing=${clearExisting}`, formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+};
+
+export const downloadExcelTemplate = () =>
+  api.get("/api/v1/export/excel-template", {
+    responseType: "blob",
+  });
+

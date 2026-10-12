@@ -965,6 +965,15 @@ async def upload_excel_timetable(
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     
+    try:
+        data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data")
+        os.makedirs(data_dir, exist_ok=True)
+        dest_path = os.path.join(data_dir, "timetable.xlsx")
+        with open(dest_path, "wb") as f_out:
+            f_out.write(contents)
+    except Exception:
+        pass
+
     return result
 
 @router.get("/export/excel-template")

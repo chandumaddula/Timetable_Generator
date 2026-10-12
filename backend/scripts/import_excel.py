@@ -37,6 +37,7 @@ from app.models.base import (
     FacultyAvailability,
     RoomAvailability,
     FacultyPreference,
+    Timetable,
     TimetableEntry,
 )
 
@@ -139,6 +140,7 @@ def import_excel_data(
         if clear_existing:
             # Delete in order of foreign key constraints
             db.query(TimetableEntry).delete()
+            db.query(Timetable).delete()
             db.query(FacultyAvailability).delete()
             db.query(RoomAvailability).delete()
             db.query(FacultyPreference).delete()

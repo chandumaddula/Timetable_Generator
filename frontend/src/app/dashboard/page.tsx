@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,6 +19,8 @@ import {
   BarChart3,
   RefreshCw,
   AlertCircle,
+  FileSpreadsheet,
+  Upload,
 } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
@@ -26,6 +28,7 @@ import { PageHeader, StatCard } from "@/components/PageHeader";
 import { Badge } from "@/components/Badge";
 import { LoadingState, ErrorState, EmptyState } from "@/components/States";
 import { DataTable } from "@/components/DataTable";
+import { ExcelUploadModal } from "@/components/ExcelUploadModal";
 import { useAuthStore } from "@/lib/auth";
 import {
   getCourses,
@@ -90,6 +93,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   // Fetch all entity counts in parallel
   const coursesQ = useQuery({
@@ -216,6 +220,13 @@ export default function DashboardPage() {
               />
               Refresh
             </button>
+            <button
+              onClick={() => setIsUploadModalOpen(true)}
+              className="btn-secondary inline-flex items-center gap-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
+            >
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              Upload Excel Data
+            </button>
             <Link href="/admin/generate" className="btn-primary inline-flex items-center gap-2">
               <Sparkles className="h-4 w-4" />
               Generate Timetable
@@ -242,6 +253,33 @@ export default function DashboardPage() {
           animate="show"
           className="space-y-6"
         >
+          {/* Custom Institution Excel Banner */}
+          <motion.section variants={fadeUp}>
+            <div className="bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-brand-50/60 border border-emerald-200/80 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs">
+              <div className="flex items-center gap-3.5">
+                <div className="h-11 w-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                  <FileSpreadsheet className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-ink-900">
+                    Custom Institution Data (.xlsx)
+                  </h3>
+                  <p className="text-xs text-ink-600 mt-0.5">
+                    Using your own university, college, or school curriculum? Upload an Excel sheet to dynamically load departments, subjects, faculty, and generate clash-free timetables.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsUploadModalOpen(true)}
+                className="btn-primary text-xs shrink-0 inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Upload Excel Sheet
+              </button>
+            </div>
+          </motion.section>
+
           {/* Stats grid */}
           <motion.section variants={fadeUp}>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -420,6 +458,12 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="p-3 space-y-1.5">
+                  <QuickActionButton
+                    icon={<FileSpreadsheet className="h-4 w-4 text-emerald-600" />}
+                    title="Upload Excel Sheet"
+                    description="Import institution data (.xlsx)"
+                    onClick={() => setIsUploadModalOpen(true)}
+                  />
                   <QuickAction
                     href="/admin/generate"
                     icon={<Sparkles className="h-4 w-4" />}
@@ -513,11 +557,46 @@ export default function DashboardPage() {
           </div>
         </motion.div>
       )}
+
+      <ExcelUploadModal
+        open={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onSuccess={refreshAll}
+      />
     </AppShell>
   );
 }
 
 // --- Sub-components ------------------------------------------------------
+
+function QuickActionButton({
+  icon,
+  title,
+  description,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left group flex items-center gap-3 p-2.5 rounded-lg hover:bg-ink-50 transition-colors"
+    >
+      <div className="h-8 w-8 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 flex items-center justify-center shrink-0 transition-colors">
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-ink-900 truncate">{title}</p>
+        <p className="text-xs text-ink-500 truncate">{description}</p>
+      </div>
+      <ArrowRight className="h-4 w-4 text-ink-300 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all" />
+    </button>
+  );
+}
 
 function QuickAction({
   href,

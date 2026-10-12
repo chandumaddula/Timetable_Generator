@@ -46,6 +46,7 @@ import {
   ShieldCheck,
   RotateCcw,
   Zap,
+  FileSpreadsheet,
 } from "lucide-react";
 import { dayShort, dayName, formatSemesterName } from "@/lib/utils";
 import { Course, Faculty, Room, Section, TimeSlot } from "@/lib/types";
@@ -477,6 +478,15 @@ export default function GeneratePage() {
   const [activeViewSection, setActiveViewSection] = useState<string>("ALL");
   const [activeTimetableId, setActiveTimetableId] = useState<number | null>(null);
 
+  // Active Excel data source
+  const [dataSourceName, setDataSourceName] = useState<string>("timetable.xlsx");
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("active_excel_source");
+      if (saved) setDataSourceName(saved);
+    }
+  }, []);
+
   // Phase: form | validating | generating | success | error
   type Phase = "form" | "validating" | "generating" | "success" | "error";
   const [phase, setPhase] = useState<Phase>("form");
@@ -775,7 +785,7 @@ export default function GeneratePage() {
     },
     {
       id: "time",
-      label: "Subject Period Time",
+      label: "All Classes Shift Hours",
       ready: Boolean(timeStart && timeEnd),
       value: timeStart && timeEnd
         ? `${formatTo12Hour(timeStart)} – ${formatTo12Hour(timeEnd)}`
@@ -1028,8 +1038,9 @@ export default function GeneratePage() {
                 <Filter className="h-5 w-5 text-brand-600" />
                 Data-Driven Generation Options
               </h2>
-              <span className="text-xs font-medium text-ink-500 bg-ink-100 px-2.5 py-1 rounded-full">
-                Source: timetable.xlsx
+              <span className="text-xs font-medium text-ink-600 bg-ink-100 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 border border-ink-200/60 shadow-2xs">
+                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+                Source: {dataSourceName}
               </span>
             </div>
 
@@ -1112,23 +1123,23 @@ export default function GeneratePage() {
                 />
               </div>
 
-              {/* 4. SUBJECT PERIOD TIME */}
+              {/* 4. ALL CLASSES SHIFT HOURS */}
               <div>
-                <label className="label">4. Subject Period Time (AM / PM)</label>
+                <label className="label">4. All Classes Shift Hours (AM / PM)</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <TimePicker12Hour
-                    label="Start Time"
+                    label="Starting Time"
                     value={timeStart}
                     onChange={setTimeStart}
-                    placeholder="Select Start (e.g. 08:00 AM)"
+                    placeholder="Select Starting Time (e.g. 08:00 AM)"
                     defaultPeriod="AM"
                     presets={["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30"]}
                   />
                   <TimePicker12Hour
-                    label="End Time"
+                    label="Ending Time"
                     value={timeEnd}
                     onChange={setTimeEnd}
-                    placeholder="Select End (e.g. 05:00 PM)"
+                    placeholder="Select Ending Time (e.g. 05:00 PM)"
                     defaultPeriod="PM"
                     presets={["14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30"]}
                   />
@@ -1394,7 +1405,7 @@ export default function GeneratePage() {
                 </h3>
                 <p className="text-xs text-ink-500">
                   {isConfigurationReady
-                    ? "Live data-driven template preview reflecting your configured department, subjects, period times, and faculty."
+                    ? "Live data-driven template preview reflecting your configured department, subjects, shift hours, and faculty."
                     : hasAnyInput
                     ? "Complete the required timetable configuration to preview the timetable."
                     : "Select the required timetable options to preview your timetable."}
