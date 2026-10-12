@@ -26,6 +26,8 @@ services:
         value: "False"
       - key: CORS_ORIGINS
         value: "*"
+      - key: PYTHON_VERSION
+        value: 3.11.9
 
   # Next.js Frontend Web Service
   - type: web
