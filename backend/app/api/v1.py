@@ -818,6 +818,33 @@ def create_entry(timetable_id: int, data: TimetableEntryCreate, db: Session = De
     db.refresh(entry)
     return entry
 
+@router.put("/timetables/{timetable_id}/entries/{entry_id}", response_model=TimetableEntryOut)
+def update_entry(timetable_id: int, entry_id: int, data: TimetableEntryUpdate, db: Session = Depends(get_db)):
+    entry = db.query(TimetableEntry).filter(
+        TimetableEntry.timetable_id == timetable_id,
+        TimetableEntry.id == entry_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Timetable entry not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        if v is not None:
+            setattr(entry, k, v)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+@router.delete("/timetables/{timetable_id}/entries/{entry_id}")
+def delete_entry(timetable_id: int, entry_id: int, db: Session = Depends(get_db)):
+    entry = db.query(TimetableEntry).filter(
+        TimetableEntry.timetable_id == timetable_id,
+        TimetableEntry.id == entry_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Timetable entry not found")
+    db.delete(entry)
+    db.commit()
+    return {"success": True, "message": "Timetable entry deleted successfully"}
+
 # ==================== VALIDATION ====================
 @router.post("/validate")
 def validate_timetable(timetable_id: int, db: Session = Depends(get_db)) -> dict:

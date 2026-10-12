@@ -307,6 +307,9 @@ class TimetableEntryCreate(TimetableEntryBase):
     pass
 
 class TimetableEntryUpdate(BaseModel):
+    course_id: Optional[int] = None
+    faculty_id: Optional[int] = None
+    section_id: Optional[int] = None
     room_id: Optional[int] = None
     time_slot_id: Optional[int] = None
     constraint_id: Optional[int] = None

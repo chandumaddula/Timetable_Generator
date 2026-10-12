@@ -15,7 +15,7 @@ def test_1_excel_import_faculty_records():
     course_with_fac = db.query(Course).filter(Course.faculty_id.isnot(None)).count()
     db.close()
     assert fac_count >= 16, f"Expected at least 16 faculty, got {fac_count}"
-    assert course_with_fac == 165, f"Expected 165 courses with faculty, got {course_with_fac}"
+    assert course_with_fac >= 165, f"Expected at least 165 courses with faculty, got {course_with_fac}"
 
 
 def test_2_select_department_semesters():

@@ -187,6 +187,34 @@ export const getTimetable = (id: number) =>
 export const getTimetableEntries = (id: number) =>
   api.get(`/api/v1/timetables/${id}/entries`);
 
+export const createTimetableEntry = (
+  timetableId: number,
+  data: {
+    course_id: number;
+    section_id: number;
+    room_id: number;
+    time_slot_id: number;
+    faculty_id: number;
+    entry_type?: string;
+  }
+) => api.post(`/api/v1/timetables/${timetableId}/entries`, data);
+
+export const updateTimetableEntry = (
+  timetableId: number,
+  entryId: number,
+  data: {
+    course_id?: number;
+    section_id?: number;
+    room_id?: number;
+    time_slot_id?: number;
+    faculty_id?: number;
+    entry_type?: string;
+  }
+) => api.put(`/api/v1/timetables/${timetableId}/entries/${entryId}`, data);
+
+export const deleteTimetableEntry = (timetableId: number, entryId: number) =>
+  api.delete(`/api/v1/timetables/${timetableId}/entries/${entryId}`);
+
 export const deleteTimetable = (id: number) =>
   api.delete(`/api/v1/timetables/${id}`);
 

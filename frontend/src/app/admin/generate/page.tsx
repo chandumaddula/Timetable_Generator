@@ -47,6 +47,7 @@ import {
   RotateCcw,
   Zap,
   FileSpreadsheet,
+  Pencil,
 } from "lucide-react";
 import { dayShort, dayName, formatSemesterName } from "@/lib/utils";
 import { Course, Faculty, Room, Section, TimeSlot } from "@/lib/types";
@@ -1580,8 +1581,18 @@ export default function GeneratePage() {
                       </div>
                     </div>
 
+                    {/* Manual Adjustments Notice */}
+                    <div className="mt-3.5 p-2.5 rounded-lg bg-blue-50/70 border border-blue-200 text-xs text-blue-900 flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <Pencil className="h-3.5 w-3.5 text-brand-600 shrink-0" />
+                        <span>
+                          <strong>Manual Customization Available:</strong> Want to adjust any period? Click any class slot or the <em>"Edit Manually"</em> button on the schedule below to edit timings, faculty, subject, or classroom.
+                        </span>
+                      </div>
+                    </div>
+
                     {/* Section Switcher Tabs */}
-                    <div className="mt-4 pt-3 border-t border-ink-100 flex items-center gap-2 flex-wrap">
+                    <div className="mt-3 pt-3 border-t border-ink-100 flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-bold text-ink-700 uppercase tracking-wide mr-1">
                         View Section Timetable:
                       </span>
@@ -1658,6 +1669,7 @@ export default function GeneratePage() {
               {/* Generated Institutional Timetable */}
               <div className="card p-4 overflow-hidden">
                 <InstitutionalTimetableSheet
+                  timetableId={generatedId ?? activeTimetableId ?? undefined}
                   entries={entriesData ?? []}
                   timeSlots={timeSlots}
                   courses={courses}
@@ -1674,6 +1686,14 @@ export default function GeneratePage() {
                   onSectionChange={(sec) => setActiveViewSection(sec)}
                   showExportButtons={true}
                   showSectionTabs={false}
+                  editable={true}
+                  onEntrySaved={() => {
+                    const tid = generatedId ?? activeTimetableId;
+                    if (tid) {
+                      qc.invalidateQueries({ queryKey: ["timetable-entries", tid] });
+                    }
+                    qc.invalidateQueries({ queryKey: ["dashboard"] });
+                  }}
                 />
               </div>
 

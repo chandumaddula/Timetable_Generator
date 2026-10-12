@@ -11,11 +11,13 @@ import {
   TimetableData,
 } from "@/lib/types";
 import { getFacultyInitials, dayShort, formatSemesterName } from "@/lib/utils";
-import { Printer, Download, Layers, CheckCircle2, Sparkles, FileText, ChevronRight } from "lucide-react";
+import { Printer, Download, Layers, CheckCircle2, Sparkles, FileText, ChevronRight, Pencil } from "lucide-react";
 import html2canvas from "html2canvas";
+import { EditScheduleSlotModal } from "@/components/EditScheduleSlotModal";
 
 export interface InstitutionalTimetableSheetProps {
   timetable?: TimetableData;
+  timetableId?: number;
   entries?: any[];
   timeSlots?: any[];
   courses?: any[];
@@ -28,6 +30,8 @@ export interface InstitutionalTimetableSheetProps {
   selectedSection?: string;
   onSectionChange?: (sec: string) => void;
   showSectionTabs?: boolean;
+  editable?: boolean;
+  onEntrySaved?: () => void;
 }
 
 function resolveInitials(name: string | undefined): string {
@@ -113,18 +117,35 @@ function ClassCell({
   courseShortCode,
   facultyInitials,
   roomName,
+  editable = false,
+  onClick,
 }: {
   courseShortCode?: string;
   facultyInitials?: string;
   roomName?: string;
+  editable?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <td className="border border-slate-800 px-2 py-2 text-center align-middle bg-white">
-      <div className="font-bold text-slate-900 leading-tight">
-        {courseShortCode || "—"}
-        {facultyInitials && facultyInitials !== "—"
-          ? ` - ${facultyInitials}`
-          : ""}
+    <td
+      onClick={editable ? onClick : undefined}
+      className={`border border-slate-800 px-2 py-2 text-center align-middle bg-white transition group ${
+        editable
+          ? "cursor-pointer hover:bg-brand-50/80 hover:ring-2 hover:ring-brand-500/50 hover:shadow-xs"
+          : ""
+      }`}
+      title={editable ? "Click to edit timing, faculty, subject, or room" : undefined}
+    >
+      <div className="font-bold text-slate-900 leading-tight flex items-center justify-center gap-1">
+        <span>
+          {courseShortCode || "—"}
+          {facultyInitials && facultyInitials !== "—"
+            ? ` - ${facultyInitials}`
+            : ""}
+        </span>
+        {editable && (
+          <Pencil className="h-2.5 w-2.5 text-brand-600 opacity-0 group-hover:opacity-100 transition shrink-0 print:hidden" />
+        )}
       </div>
       <div className="text-[10px] uppercase tracking-wide text-slate-700 font-medium mt-0.5">
         {roomName || "—"}
@@ -135,13 +156,18 @@ function ClassCell({
 
 function LabSplitCell({
   assignments,
+  editable = false,
+  onSelectEntry,
 }: {
   assignments: Array<{
     batch: string;
     courseShortCode?: string;
     facultyInitials?: string;
     roomName?: string;
+    entry?: any;
   }>;
+  editable?: boolean;
+  onSelectEntry?: (entry: any) => void;
 }) {
   return (
     <td className="border border-slate-800 p-1 bg-slate-200/70 align-top">
@@ -149,10 +175,19 @@ function LabSplitCell({
         {assignments.map((a, idx) => (
           <div
             key={idx}
-            className="border border-slate-400 bg-slate-100 p-1 rounded-sm text-center leading-tight"
+            onClick={editable && a.entry ? () => onSelectEntry?.(a.entry) : undefined}
+            className={`border border-slate-400 bg-slate-100 p-1 rounded-sm text-center leading-tight transition ${
+              editable && a.entry
+                ? "cursor-pointer hover:bg-brand-50 hover:border-brand-500 hover:shadow-xs"
+                : ""
+            }`}
+            title={editable && a.entry ? "Click to edit lab batch timing/faculty/room" : undefined}
           >
-            <div className="font-bold text-slate-900 border-b border-slate-300 pb-0.5 mb-0.5">
-              {a.batch}
+            <div className="font-bold text-slate-900 border-b border-slate-300 pb-0.5 mb-0.5 flex items-center justify-center gap-1">
+              <span>{a.batch}</span>
+              {editable && a.entry && (
+                <Pencil className="h-2 w-2 text-brand-600 print:hidden" />
+              )}
             </div>
             <div className="font-semibold text-slate-800">
               {a.courseShortCode || "—"}{" "}
@@ -186,6 +221,9 @@ interface SingleSectionSheetProps {
   subtitle?: string;
   metadata?: TimetableData["metadata"];
   showExportButtons?: boolean;
+  timetableId?: number;
+  editable?: boolean;
+  onEntrySaved?: () => void;
 }
 
 function SingleSectionSheet({
@@ -200,8 +238,16 @@ function SingleSectionSheet({
   subtitle,
   metadata,
   showExportButtons = true,
+  timetableId,
+  editable = false,
+  onEntrySaved,
 }: SingleSectionSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const [manualEditMode, setManualEditMode] = useState<boolean>(false);
+  const [slotModalOpen, setSlotModalOpen] = useState<boolean>(false);
+  const [selectedEntry, setSelectedEntry] = useState<any>(null);
+  const [selectedTimeSlotId, setSelectedTimeSlotId] = useState<number | undefined>(undefined);
+  const [selectedDay, setSelectedDay] = useState<number | undefined>(undefined);
 
   const courseMap = useMemo(
     () => new Map<number, Course>(courses.map((c) => [c.id, c])),
@@ -411,6 +457,21 @@ function SingleSectionSheet({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {editable && (
+              <button
+                type="button"
+                onClick={() => setManualEditMode(!manualEditMode)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md shadow flex items-center gap-1.5 transition ${
+                  manualEditMode
+                    ? "bg-brand-600 text-white hover:bg-brand-700 ring-2 ring-brand-300"
+                    : "bg-white text-slate-800 border border-slate-300 hover:bg-slate-100"
+                }`}
+                title="Click to toggle interactive editing for all timetable slots"
+              >
+                <Pencil className="h-3.5 w-3.5 text-brand-600" />
+                {manualEditMode ? "Exit Edit Mode" : "Edit Manually"}
+              </button>
+            )}
             <button
               onClick={handleExportPNG}
               className="px-3.5 py-1.5 bg-slate-900 text-white hover:bg-slate-800 text-xs font-semibold rounded-md shadow flex items-center gap-1.5 transition"
@@ -426,6 +487,24 @@ function SingleSectionSheet({
               Print
             </button>
           </div>
+        </div>
+      )}
+
+      {editable && manualEditMode && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-lg p-3 text-xs flex items-center justify-between print:hidden shadow-xs">
+          <div className="flex items-center gap-2">
+            <Pencil className="h-4 w-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>Manual Editing Active:</strong> Click any scheduled class to modify its Timings, Faculty, Subject, or Classroom. Click any empty slot to assign a class.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setManualEditMode(false)}
+            className="text-amber-800 hover:text-amber-950 font-bold underline text-xs shrink-0 ml-3"
+          >
+            Done Editing
+          </button>
         </div>
       )}
 
@@ -526,8 +605,29 @@ function SingleSectionSheet({
                         return (
                           <td
                             key={d}
-                            className="border border-slate-800 px-2 py-3 bg-white"
-                          />
+                            onClick={
+                              editable
+                                ? () => {
+                                    setSelectedEntry(null);
+                                    setSelectedTimeSlotId(slotForDay?.id);
+                                    setSelectedDay(d);
+                                    setSlotModalOpen(true);
+                                  }
+                                : undefined
+                            }
+                            className={`border border-slate-800 px-2 py-3 bg-white transition ${
+                              editable
+                                ? "cursor-pointer hover:bg-emerald-50/70 hover:shadow-xs group"
+                                : ""
+                            }`}
+                            title={editable ? "Click to assign a class to this empty slot" : undefined}
+                          >
+                            {editable && (
+                              <span className="text-[10px] text-emerald-600 font-semibold opacity-0 group-hover:opacity-100 transition block print:hidden">
+                                + Assign
+                              </span>
+                            )}
+                          </td>
                         );
                       }
 
@@ -547,10 +647,21 @@ function SingleSectionSheet({
                             courseShortCode: c?.code || c?.name?.slice(0, 5),
                             facultyInitials: resolveInitials(f?.name),
                             roomName: r?.room_number || r?.building,
+                            entry: e,
                           };
                         });
                         return (
-                          <LabSplitCell key={d} assignments={assignments} />
+                          <LabSplitCell
+                            key={d}
+                            assignments={assignments}
+                            editable={editable}
+                            onSelectEntry={(entryObj) => {
+                              setSelectedEntry(entryObj);
+                              setSelectedTimeSlotId(slotForDay?.id || entryObj.time_slot_id);
+                              setSelectedDay(d);
+                              setSlotModalOpen(true);
+                            }}
+                          />
                         );
                       }
 
@@ -567,6 +678,13 @@ function SingleSectionSheet({
                           courseShortCode={courseAbbr}
                           facultyInitials={initials}
                           roomName={r?.room_number || r?.building}
+                          editable={editable}
+                          onClick={() => {
+                            setSelectedEntry(e);
+                            setSelectedTimeSlotId(slotForDay?.id || e.time_slot_id);
+                            setSelectedDay(d);
+                            setSlotModalOpen(true);
+                          }}
                         />
                       );
                     })}
@@ -715,6 +833,25 @@ function SingleSectionSheet({
           </div>
         </div>
       </div>
+
+      <EditScheduleSlotModal
+        open={slotModalOpen}
+        onClose={() => {
+          setSlotModalOpen(false);
+          setSelectedEntry(null);
+        }}
+        timetableId={timetableId}
+        entry={selectedEntry}
+        timeSlotId={selectedTimeSlotId}
+        dayOfWeek={selectedDay}
+        sectionName={sectionName}
+        courses={courses}
+        faculty={faculty}
+        rooms={rooms}
+        timeSlots={timeSlots}
+        sections={sections}
+        onSaved={onEntrySaved}
+      />
     </div>
   );
 }
@@ -725,6 +862,7 @@ function SingleSectionSheet({
 
 export function InstitutionalTimetableSheet({
   timetable,
+  timetableId: timetableIdProp,
   entries: entriesProp,
   timeSlots: timeSlotsProp,
   courses: coursesProp,
@@ -737,7 +875,10 @@ export function InstitutionalTimetableSheet({
   selectedSection: selectedSectionProp,
   onSectionChange,
   showSectionTabs = true,
+  editable = false,
+  onEntrySaved,
 }: InstitutionalTimetableSheetProps) {
+  const activeTimetableId = timetableIdProp ?? timetable?.id;
   const metadata = timetable?.metadata ?? {};
 
   const courses: Course[] = timetable?.courses ?? (coursesProp ?? []);
@@ -926,6 +1067,9 @@ export function InstitutionalTimetableSheet({
                   subtitle={secSubtitle}
                   metadata={secMeta}
                   showExportButtons={showExportButtons}
+                  timetableId={activeTimetableId}
+                  editable={editable}
+                  onEntrySaved={onEntrySaved}
                 />
               </div>
             );
@@ -952,6 +1096,9 @@ export function InstitutionalTimetableSheet({
       subtitle={subtitle}
       metadata={metadata}
       showExportButtons={showExportButtons}
+      timetableId={activeTimetableId}
+      editable={editable}
+      onEntrySaved={onEntrySaved}
     />
   );
 }

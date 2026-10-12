@@ -257,6 +257,13 @@ export default function TimetableDetailPage() {
           subtitle={`Version ${timetable.version} • Official Department Schedule`}
           showExportButtons={true}
           showSectionTabs={true}
+          timetableId={id}
+          editable={true}
+          onEntrySaved={() => {
+            qc.invalidateQueries({ queryKey: ["timetable-entries", id] });
+            qc.invalidateQueries({ queryKey: ["timetable", id] });
+            qc.invalidateQueries({ queryKey: ["analytics", id] });
+          }}
         />
       )}
 

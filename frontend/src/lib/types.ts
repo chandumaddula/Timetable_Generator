@@ -287,6 +287,7 @@ export interface TimetableMetadata {
 }
 
 export interface TimetableData {
+  id?: number;
   metadata: TimetableMetadata;
   days: string[];
   timeSlots: TimeSlot[];
