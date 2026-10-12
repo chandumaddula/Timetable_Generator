@@ -93,6 +93,57 @@ def init_db():
         except Exception:
             pass
 
+    # Bootstrap roles, admin user, and initial dataset if fresh database
+    try:
+        from app.models.base import User, Role, UserRole, Department
+        from app.security import hash_password
+        import os
+
+        with SessionLocal() as db:
+            # 1. Seed default roles if missing
+            if db.query(Role).count() == 0:
+                admin_role = Role(name="admin", description="System administrator")
+                faculty_role = Role(name="faculty", description="Faculty member")
+                student_role = Role(name="student", description="Student")
+                db.add_all([admin_role, faculty_role, student_role])
+                db.commit()
+
+            # 2. Seed default admin user if none exists
+            if db.query(User).count() == 0:
+                admin_role = db.query(Role).filter(Role.name == "admin").first()
+                admin_user = User(
+                    username="admin",
+                    email="admin@timetable.app",
+                    full_name="Administrator",
+                    hashed_password=hash_password("admin123"),
+                    is_active=True,
+                    is_superuser=True,
+                )
+                db.add(admin_user)
+                db.commit()
+                db.refresh(admin_user)
+                if admin_role:
+                    db.add(UserRole(user_id=admin_user.id, role_id=admin_role.id))
+                    db.commit()
+
+            # 3. Seed initial excel dataset if department table is completely empty
+            if db.query(Department).count() == 0:
+                candidate_paths = [
+                    os.path.join(os.path.dirname(__file__), "..", "data", "timetable.xlsx"),
+                    os.path.join(os.getcwd(), "data", "timetable.xlsx"),
+                    os.path.join(os.getcwd(), "backend", "data", "timetable.xlsx"),
+                ]
+                for p in candidate_paths:
+                    if os.path.exists(p):
+                        try:
+                            from scripts.import_excel import import_timetable_from_excel
+                            import_timetable_from_excel(p, db)
+                            break
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+
 
 def drop_db():
     """Drop all tables."""

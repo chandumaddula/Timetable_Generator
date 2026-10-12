@@ -1,8 +1,13 @@
-/** @type {import('next').NextConfig} */
-const backendUrl =
+let rawBackend = (
   process.env.BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
-  "http://127.0.0.1:8000";
+  "http://127.0.0.1:8000"
+).trim();
+
+if (!rawBackend.startsWith("http://") && !rawBackend.startsWith("https://")) {
+  rawBackend = `https://${rawBackend}`;
+}
+const backendUrl = rawBackend;
 
 const nextConfig = {
   output: "standalone",

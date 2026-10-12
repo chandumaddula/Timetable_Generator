@@ -136,32 +136,44 @@ BACKEND_URL=https://api.yourdomain.com
 
 ---
 
-## 5. Database Initialization & Seeding
+## 5. Automatic Bootstrapping & Initial Credentials
 
-The backend automatically creates tables upon startup via SQLAlchemy `init_db()` in `app/main.py`.
+Upon deployment, the backend's `init_db()` automatically initializes all tables and bootstraps the following if the database is newly created:
 
-### Optional: Seed Initial Demo Data
-To populate demo departments, faculty, courses, sections, rooms, and constraints:
+1. **Default Administrator Account**:
+   - **Username**: `admin`
+   - **Password**: `admin123`
+   *(You can change this password or register additional users through the web UI)*
+
+2. **Standard Roles**: `admin`, `faculty`, `student`.
+
+3. **Base Academic Dataset**:
+   - Automatically imports departments, faculty, courses, rooms, and time slots from `backend/data/timetable.xlsx` so the application is ready to use immediately without manual seeding!
+
+### Manual Seeding (Optional)
+If you prefer to re-seed demo fixtures:
 ```bash
 # In backend directory:
 python seed_data.py
 ```
 
-### Optional: Import Data from Excel File
+### Import Custom Excel Data
+You can upload your own Excel sheet directly through the Dashboard UI button (**"Upload Excel Data"**), or run:
 ```bash
 # In backend directory:
-python scripts/import_excel.py --file data/timetable_data.xlsx
+python scripts/import_excel.py --file data/timetable.xlsx
 ```
 
 ---
 
 ## 6. Pre-Deployment Verification Checklist
 
-- [x] **Backend Unit Tests**: 43/43 tests passing (`pytest`)
+- [x] **Backend Unit Tests**: 44/44 tests passing (`pytest`)
 - [x] **Frontend Production Build**: Zero compile or type errors (`npm run build`)
 - [x] **JWT Authentication**: Secured with `HTTPBearer` token extraction
-- [x] **CORS Middleware**: Dynamic domain allowlist for production
-- [x] **PostgreSQL & SQLite Drivers**: Sync and async connection strings supported
-- [x] **Dockerfiles**: Multi-stage optimized images for backend & frontend
+- [x] **CORS Middleware**: Flexible origin matching supporting Vercel, custom domains, and wildcards
+- [x] **PostgreSQL & SQLite Drivers**: Sync (`psycopg2-binary`) and async (`asyncpg`, `aiosqlite`) drivers installed
+- [x] **Dockerfiles**: Multi-stage production images with dynamic `$PORT` support
 - [x] **Docker Compose**: Pre-configured with Postgres, Backend, and Frontend
 - [x] **Cloud Blueprints**: Ready-to-use `render.yaml` and `Procfile`
+- [x] **Automatic Bootstrapping**: Zero-step initialization for brand new cloud databases

@@ -26,14 +26,26 @@ def create_app() -> FastAPI:
     )
 
     # CORS - configure origins appropriately in production
-    origins = ["*"] if settings.DEBUG else (settings.CORS_ORIGINS if isinstance(settings.CORS_ORIGINS, list) else [settings.CORS_ORIGINS])
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+    configured_origins = (
+        ["*"] if settings.DEBUG
+        else (settings.CORS_ORIGINS if isinstance(settings.CORS_ORIGINS, list) else [settings.CORS_ORIGINS])
     )
+    if "*" in configured_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origin_regex=r"^https?://.*",
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=configured_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     # Include API routers
     app.include_router(auth_router, prefix="/api/auth")

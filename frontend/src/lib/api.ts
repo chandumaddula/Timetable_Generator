@@ -1,6 +1,25 @@
 import axios from "axios";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const getApiBase = () => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (envUrl) {
+    return envUrl.startsWith("http://") || envUrl.startsWith("https://")
+      ? envUrl
+      : `https://${envUrl}`;
+  }
+  if (typeof window !== "undefined") {
+    // If running in development on localhost
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return "http://127.0.0.1:8000";
+    }
+    // In production without NEXT_PUBLIC_API_URL, use same-origin relative URLs
+    // which are automatically forwarded to backend via Next.js rewrites
+    return "";
+  }
+  return process.env.BACKEND_URL || "http://127.0.0.1:8000";
+};
+
+const API_BASE = getApiBase();
 
 const api = axios.create({
   baseURL: API_BASE,
