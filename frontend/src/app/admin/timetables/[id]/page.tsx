@@ -165,22 +165,25 @@ export default function TimetableDetailPage() {
         description={`Version ${timetable.version} • ${timetable.is_finalized ? "Finalized" : "Draft"}${distinctSections.length > 1 ? ` • ${distinctSections.length} Sections Generated` : ""}`}
         icon={<Calendar className="h-5 w-5" />}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             <button
               onClick={() => router.push("/admin/timetables")}
-              className="btn-secondary"
+              className="btn-secondary text-xs sm:text-sm py-2 sm:py-2.5 px-3 sm:px-4"
             >
               <ArrowLeft className="h-4 w-4" /> Back
             </button>
             <button
               onClick={() => validate.mutate()}
               disabled={validate.isPending}
-              className="btn-secondary"
+              className="btn-secondary text-xs sm:text-sm py-2 sm:py-2.5 px-3 sm:px-4"
             >
               <Sparkles className="h-4 w-4" /> Validate
             </button>
             {!timetable.is_finalized && (
-              <button onClick={() => finalize.mutate()} className="btn-primary">
+              <button
+                onClick={() => finalize.mutate()}
+                className="btn-primary text-xs sm:text-sm py-2 sm:py-2.5 px-3 sm:px-4"
+              >
                 <CheckCircle2 className="h-4 w-4" /> Finalize
               </button>
             )}
@@ -189,7 +192,7 @@ export default function TimetableDetailPage() {
       />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 mb-5 sm:mb-6">
         <StatCard
           label="Total Assignments"
           value={entries?.length ?? 0}
@@ -221,18 +224,18 @@ export default function TimetableDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-ink-100 mb-5 flex items-center gap-1 overflow-x-auto">
+      <div className="border-b border-ink-100 mb-5 flex items-center gap-1 overflow-x-auto pb-0.5 whitespace-nowrap">
         {([
-          ["institutional", "Institutional Sheet", <FileText className="h-4 w-4" />],
-          ["grid", "Interactive Grid", <Layers className="h-4 w-4" />],
-          ["list", "List View", <ListChecks className="h-4 w-4" />],
-          ["analytics", "Analytics", <BarChart3 className="h-4 w-4" />],
-          ["conflicts", "Validation", <AlertTriangle className="h-4 w-4" />],
+          ["institutional", "Institutional Sheet", <FileText className="h-4 w-4 shrink-0" />],
+          ["grid", "Interactive Grid", <Layers className="h-4 w-4 shrink-0" />],
+          ["list", "List View", <ListChecks className="h-4 w-4 shrink-0" />],
+          ["analytics", "Analytics", <BarChart3 className="h-4 w-4 shrink-0" />],
+          ["conflicts", "Validation", <AlertTriangle className="h-4 w-4 shrink-0" />],
         ] as Array<[Tab, string, React.ReactNode]>).map(([t, label, icon]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2.5 text-sm font-medium flex items-center gap-2 border-b-2 transition ${
+            className={`px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium flex items-center gap-1.5 sm:gap-2 border-b-2 transition shrink-0 ${
               tab === t
                 ? "border-brand-600 text-brand-700 font-semibold"
                 : "border-transparent text-ink-500 hover:text-ink-900"

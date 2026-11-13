@@ -26,20 +26,20 @@
     @apply text-brand-700 bg-brand-50 font-semibold;
   }
   .card {
-    @apply bg-white rounded-xl shadow-card border border-ink-100 p-6;
+    @apply bg-white rounded-xl shadow-card border border-ink-100 p-3.5 sm:p-5 md:p-6;
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold;
+    @apply inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold;
     @apply bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800;
     @apply transition-all duration-200 shadow-sm hover:shadow-md;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold;
+    @apply inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold;
     @apply bg-white text-ink-700 border border-ink-200 hover:bg-ink-50 active:bg-ink-100;
     @apply transition-all duration-200;
   }
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold;
+    @apply inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold;
     @apply bg-red-600 text-white hover:bg-red-700 active:bg-red-800;
     @apply transition-all duration-200;
   }
@@ -64,7 +64,7 @@
     @apply overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-sm;
   }
   .data-table {
-    @apply w-full text-sm;
+    @apply w-full text-sm min-w-[540px];
   }
   .data-table thead {
     @apply bg-ink-50 border-b border-ink-200;
