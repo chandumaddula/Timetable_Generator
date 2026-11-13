@@ -24,18 +24,22 @@ def test_2_select_department_semesters():
     comp_dept = next(d for d in depts if d["name"] == "Computer Engineering")
     sem_res = client.get(f"/api/v1/semesters?department_id={comp_dept['id']}").json()
     sem_names = [s["semester"] for s in sem_res]
-    assert any("Semester 1 & 2" in s for s in sem_names)
+    assert any("Semester 1" in s for s in sem_names)
+    assert any("Semester 2" in s for s in sem_names)
 
 
 def test_3_select_semester_subjects():
     """TEST 3: Select: Semester 1 & 2 -> Correct subjects appear."""
     depts = client.get("/api/v1/departments").json()
     comp_dept = next(d for d in depts if d["name"] == "Computer Engineering")
-    courses_res = client.get(f"/api/v1/courses?department_id={comp_dept['id']}&semester=Semester 1 & 2").json()
-    course_names = [c["name"] for c in courses_res]
-    assert "Programming for Problem Solving" in course_names
-    assert "English" in course_names
-    assert "Basic Civil Engineering" in course_names
+    courses_res1 = client.get(f"/api/v1/courses?department_id={comp_dept['id']}&semester=Semester 1").json()
+    course_names1 = [c["name"] for c in courses_res1]
+    assert "Basic Civil Engineering" in course_names1
+
+    courses_res2 = client.get(f"/api/v1/courses?department_id={comp_dept['id']}&semester=Semester 2").json()
+    course_names2 = [c["name"] for c in courses_res2]
+    assert "Programming for Problem Solving" in course_names2
+    assert "English" in course_names2
 
 
 def test_4_faculty_dropdown_not_empty():
@@ -78,7 +82,7 @@ def test_7_select_specific_subjects_faculty():
     """TEST 7: Select specific subjects -> Faculty associated with those subjects can be selected."""
     depts = client.get("/api/v1/departments").json()
     comp_dept = next(d for d in depts if d["name"] == "Computer Engineering")
-    courses_res = client.get(f"/api/v1/courses?department_id={comp_dept['id']}&semester=Semester 1 & 2").json()
+    courses_res = client.get(f"/api/v1/courses?department_id={comp_dept['id']}&semester=Semester 2").json()
     pps = next(c for c in courses_res if c["name"] == "Programming for Problem Solving")
     eng = next(c for c in courses_res if c["name"] == "English")
     specific_fac_res = client.get(f"/api/v1/faculty?course_ids={pps['id']},{eng['id']}").json()
@@ -91,16 +95,16 @@ def test_8_generate_timetable_with_dsatur():
     """TEST 8: Generate timetable -> Selected faculty is passed into generation system and DSATUR works."""
     depts = client.get("/api/v1/departments").json()
     comp_dept = next(d for d in depts if d["name"] == "Computer Engineering")
-    courses_res = client.get(f"/api/v1/courses?department_id={comp_dept['id']}&semester=Semester 1 & 2").json()
+    courses_res = client.get(f"/api/v1/courses?department_id={comp_dept['id']}&semester=Semester 2").json()
     pps = next(c for c in courses_res if c["name"] == "Programming for Problem Solving")
     eng = next(c for c in courses_res if c["name"] == "English")
     specific_fac_res = client.get(f"/api/v1/faculty?course_ids={pps['id']},{eng['id']}").json()
     selected_fac_ids = [f["id"] for f in specific_fac_res]
 
     gen_payload = {
-        "name": "Test Timetable CE Sem 1&2",
+        "name": "Test Timetable CE Sem 2",
         "department_id": comp_dept["id"],
-        "semester": "Semester 1 & 2",
+        "semester": "Semester 2",
         "courses": [pps["id"], eng["id"]],
         "faculty": selected_fac_ids,
         "time_start": "08:00",

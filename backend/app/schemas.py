@@ -295,7 +295,7 @@ class TimetableOut(TimetableBase, TimestampMixin):
 # ---- TimetableEntry ----
 class TimetableEntryBase(BaseModel):
     course_id: int
-    section_id: int
+    section_id: Optional[int] = None
     room_id: int
     time_slot_id: int
     faculty_id: int
@@ -304,12 +304,13 @@ class TimetableEntryBase(BaseModel):
     is_primary: bool = True
 
 class TimetableEntryCreate(TimetableEntryBase):
-    pass
+    section_name: Optional[str] = None
 
 class TimetableEntryUpdate(BaseModel):
     course_id: Optional[int] = None
     faculty_id: Optional[int] = None
     section_id: Optional[int] = None
+    section_name: Optional[str] = None
     room_id: Optional[int] = None
     time_slot_id: Optional[int] = None
     constraint_id: Optional[int] = None

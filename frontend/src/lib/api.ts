@@ -210,7 +210,8 @@ export const createTimetableEntry = (
   timetableId: number,
   data: {
     course_id: number;
-    section_id: number;
+    section_id?: number;
+    section_name?: string;
     room_id: number;
     time_slot_id: number;
     faculty_id: number;
@@ -224,6 +225,7 @@ export const updateTimetableEntry = (
   data: {
     course_id?: number;
     section_id?: number;
+    section_name?: string;
     room_id?: number;
     time_slot_id?: number;
     faculty_id?: number;

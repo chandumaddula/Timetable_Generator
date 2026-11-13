@@ -25,7 +25,7 @@ from app.schemas import (
     RoomAvailabilityCreate, RoomAvailabilityOut,
     FacultyPreferenceCreate, FacultyPreferenceOut,
     TimetableCreate, TimetableUpdate, TimetableOut,
-    TimetableEntryCreate, TimetableEntryUpdate, TimetableEntryOut,
+    TimetableEntryCreate, TimetableEntryUpdate, TimetableEntryOut, EntryType,
     GenerateTimetableRequest, ValidationResult, AnalyticsData,
     ExcelImportResponse, ExcelImportCounts,
 )
@@ -806,13 +806,167 @@ def finalize_timetable(timetable_id: int, db: Session = Depends(get_db)):
     return t
 
 # ==================== TIMETABLE ENTRIES ====================
+def resolve_or_create_section(
+    db: Session,
+    course_id: int,
+    section_id: Optional[int] = None,
+    section_name: Optional[str] = None
+) -> int:
+    if section_name and str(section_name).strip():
+        clean_num = str(section_name).strip().upper().replace("SECTION", "").strip()
+        sec = db.query(Section).filter(
+            Section.course_id == course_id,
+            Section.section_number == clean_num
+        ).first()
+        if not sec:
+            c = db.query(Course).filter(Course.id == course_id).first()
+            sec = Section(
+                course_id=course_id,
+                section_number=clean_num,
+                capacity=60,
+                periods_per_week=c.default_periods_per_week if c and c.default_periods_per_week else 3,
+                requires_lab=bool(c.is_lab) if c else False,
+            )
+            db.add(sec)
+            db.flush()
+        return sec.id
+
+    if section_id:
+        sec = db.query(Section).filter(Section.id == section_id).first()
+        if sec:
+            if sec.course_id != course_id:
+                matching = db.query(Section).filter(
+                    Section.course_id == course_id,
+                    Section.section_number == sec.section_number
+                ).first()
+                if matching:
+                    return matching.id
+                c = db.query(Course).filter(Course.id == course_id).first()
+                new_sec = Section(
+                    course_id=course_id,
+                    section_number=sec.section_number,
+                    capacity=60,
+                    periods_per_week=c.default_periods_per_week if c and c.default_periods_per_week else 3,
+                    requires_lab=bool(c.is_lab) if c else False,
+                )
+                db.add(new_sec)
+                db.flush()
+                return new_sec.id
+            return sec.id
+
+    raise HTTPException(status_code=400, detail="Either section_id or section_name is required.")
+
+
+def validate_entry_conflict(
+    db: Session,
+    timetable_id: int,
+    entry_id: Optional[int],
+    course_id: int,
+    section_id: int,
+    faculty_id: int,
+    room_id: int,
+    time_slot_id: int,
+    is_lab: bool = False,
+):
+    # 1. Break slot check
+    ts = db.query(TimeSlot).filter(TimeSlot.id == time_slot_id).first()
+    if ts and ts.is_break:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot schedule class during a break slot ({ts.label or 'Break'})."
+        )
+
+    # 2. Query all other entries in this timetable at the same time slot
+    q = db.query(TimetableEntry).filter(
+        TimetableEntry.timetable_id == timetable_id,
+        TimetableEntry.time_slot_id == time_slot_id,
+    )
+    if entry_id is not None:
+        q = q.filter(TimetableEntry.id != entry_id)
+    other_entries = q.all()
+
+    if not other_entries:
+        return
+
+    # 3. Check Faculty Conflict
+    for other in other_entries:
+        if other.faculty_id == faculty_id:
+            fac = db.query(Faculty).filter(Faculty.id == faculty_id).first()
+            other_c = db.query(Course).filter(Course.id == other.course_id).first()
+            other_sec = db.query(Section).filter(Section.id == other.section_id).first()
+            fac_name = fac.name if fac else f"Faculty ID {faculty_id}"
+            c_name = other_c.code if other_c else "another class"
+            sec_name = other_sec.section_number if other_sec else str(other.section_id)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Faculty conflict: {fac_name} is already teaching {c_name} for Section {sec_name} at this time slot."
+            )
+
+    # 4. Check Room Conflict
+    for other in other_entries:
+        if other.room_id == room_id:
+            rm = db.query(Room).filter(Room.id == room_id).first()
+            other_sec = db.query(Section).filter(Section.id == other.section_id).first()
+            rm_name = rm.room_number if rm else f"Room ID {room_id}"
+            sec_name = other_sec.section_number if other_sec else str(other.section_id)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Room conflict: Room {rm_name} is already occupied by Section {sec_name} at this time slot."
+            )
+
+    # 5. Check Section Conflict
+    target_sec = db.query(Section).filter(Section.id == section_id).first()
+    target_sec_num = target_sec.section_number.strip().upper() if target_sec else str(section_id)
+
+    for other in other_entries:
+        other_sec = db.query(Section).filter(Section.id == other.section_id).first()
+        other_sec_num = other_sec.section_number.strip().upper() if other_sec else str(other.section_id)
+        if other_sec_num == target_sec_num:
+            is_other_lab = (
+                str(getattr(other, "entry_type", "")).lower() == "lab"
+                or getattr(other, "entry_type", None) == EntryType.LAB
+            )
+            if is_lab and is_other_lab and other.course_id == course_id:
+                continue
+            other_c = db.query(Course).filter(Course.id == other.course_id).first()
+            c_name = other_c.code if other_c else "a class"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Section conflict: Section {target_sec_num} already has {c_name} scheduled at this time slot."
+            )
+
+
 @router.get("/timetables/{timetable_id}/entries", response_model=List[TimetableEntryOut])
 def list_timetable_entries(timetable_id: int, db: Session = Depends(get_db)):
     return db.query(TimetableEntry).filter(TimetableEntry.timetable_id == timetable_id).all()
 
 @router.post("/timetables/{timetable_id}/entries", response_model=TimetableEntryOut)
 def create_entry(timetable_id: int, data: TimetableEntryCreate, db: Session = Depends(get_db)):
-    entry = TimetableEntry(timetable_id=timetable_id, **data.model_dump())
+    t = db.query(Timetable).filter(Timetable.id == timetable_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Timetable not found")
+
+    sec_id = resolve_or_create_section(db, data.course_id, data.section_id, data.section_name)
+    is_lab = (
+        str(getattr(data, "entry_type", "")).lower() == "lab"
+        or getattr(data, "entry_type", None) == EntryType.LAB
+    )
+
+    validate_entry_conflict(
+        db=db,
+        timetable_id=timetable_id,
+        entry_id=None,
+        course_id=data.course_id,
+        section_id=sec_id,
+        faculty_id=data.faculty_id,
+        room_id=data.room_id,
+        time_slot_id=data.time_slot_id,
+        is_lab=is_lab,
+    )
+
+    dump_data = data.model_dump(exclude={"section_name"})
+    dump_data["section_id"] = sec_id
+    entry = TimetableEntry(timetable_id=timetable_id, **dump_data)
     db.add(entry)
     db.commit()
     db.refresh(entry)
@@ -826,9 +980,50 @@ def update_entry(timetable_id: int, entry_id: int, data: TimetableEntryUpdate, d
     ).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Timetable entry not found")
-    for k, v in data.model_dump(exclude_unset=True).items():
-        if v is not None:
-            setattr(entry, k, v)
+
+    effective_course_id = data.course_id if data.course_id is not None else entry.course_id
+    effective_faculty_id = data.faculty_id if data.faculty_id is not None else entry.faculty_id
+    effective_room_id = data.room_id if data.room_id is not None else entry.room_id
+    effective_slot_id = data.time_slot_id if data.time_slot_id is not None else entry.time_slot_id
+    effective_entry_type = data.entry_type if data.entry_type is not None else entry.entry_type
+    is_lab = (
+        str(effective_entry_type).lower() == "lab"
+        or effective_entry_type == EntryType.LAB
+    )
+
+    effective_sec_id = entry.section_id
+    if data.section_id is not None or data.section_name is not None or data.course_id is not None:
+        effective_sec_id = resolve_or_create_section(
+            db,
+            course_id=effective_course_id,
+            section_id=data.section_id if data.section_id is not None else entry.section_id,
+            section_name=data.section_name,
+        )
+
+    validate_entry_conflict(
+        db=db,
+        timetable_id=timetable_id,
+        entry_id=entry_id,
+        course_id=effective_course_id,
+        section_id=effective_sec_id,
+        faculty_id=effective_faculty_id,
+        room_id=effective_room_id,
+        time_slot_id=effective_slot_id,
+        is_lab=is_lab,
+    )
+
+    entry.course_id = effective_course_id
+    entry.faculty_id = effective_faculty_id
+    entry.room_id = effective_room_id
+    entry.time_slot_id = effective_slot_id
+    entry.section_id = effective_sec_id
+    if data.entry_type is not None:
+        entry.entry_type = data.entry_type
+    if data.is_primary is not None:
+        entry.is_primary = data.is_primary
+    if data.constraint_id is not None:
+        entry.constraint_id = data.constraint_id
+
     db.commit()
     db.refresh(entry)
     return entry

@@ -212,6 +212,7 @@ function LabSplitCell({
 interface SingleSectionSheetProps {
   sectionName?: string;
   entries: any[];
+  allEntries?: any[];
   timeSlots: TimeSlot[];
   courses: Course[];
   faculty: Faculty[];
@@ -229,6 +230,7 @@ interface SingleSectionSheetProps {
 function SingleSectionSheet({
   sectionName,
   entries,
+  allEntries,
   timeSlots,
   courses,
   faculty,
@@ -850,6 +852,7 @@ function SingleSectionSheet({
         rooms={rooms}
         timeSlots={timeSlots}
         sections={sections}
+        entries={allEntries || entries}
         onSaved={onEntrySaved}
       />
     </div>
@@ -1058,6 +1061,7 @@ export function InstitutionalTimetableSheet({
                 <SingleSectionSheet
                   sectionName={sec.name}
                   entries={sec.entries}
+                  allEntries={entries}
                   timeSlots={timeSlots}
                   courses={courses}
                   faculty={faculty}
@@ -1087,6 +1091,7 @@ export function InstitutionalTimetableSheet({
     <SingleSectionSheet
       sectionName={singleSectionName}
       entries={singleEntries}
+      allEntries={entries}
       timeSlots={timeSlots}
       courses={courses}
       faculty={faculty}
